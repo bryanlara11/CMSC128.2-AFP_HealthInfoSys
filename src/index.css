@@ -1,0 +1,113 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-storm-200;
+  }
+  body {
+    @apply bg-background font-sans text-text-primary antialiased;
+  }
+  html {
+    @apply scroll-smooth;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg transition-colors hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-primary bg-background border border-primary rounded-lg transition-colors hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:text-primary hover:bg-primary/5 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2;
+  }
+  .input-base {
+    @apply w-full px-3 py-2 text-sm text-text-primary bg-background border border-storm-200 rounded-lg placeholder:text-text-muted transition-colors focus:outline-none focus:ring-2 focus:ring-accent-teal focus:border-transparent;
+  }
+  .card {
+    @apply bg-background-card rounded-xl border border-storm-200 shadow-card transition-shadow hover:shadow-card-hover;
+  }
+  .table-container {
+    @apply overflow-x-auto rounded-lg border border-storm-200;
+  }
+  .table-base {
+    @apply w-full text-sm text-left;
+  }
+  .table-base th {
+    @apply px-4 py-3 font-medium text-text-secondary bg-cream-200 border-b border-storm-200 uppercase tracking-wider text-xs;
+  }
+  .table-base td {
+    @apply px-4 py-3 border-b border-storm-200 text-text-primary;
+  }
+  .table-base tr:last-child td {
+    @apply border-b-0;
+  }
+  .table-base tr:hover td {
+    @apply bg-primary/5;
+  }
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  .badge-success {
+    @apply badge bg-green-100 text-green-800;
+  }
+  .badge-warning {
+    @apply badge bg-yellow-100 text-yellow-800;
+  }
+  .badge-danger {
+    @apply badge bg-red-100 text-red-800;
+  }
+  .badge-info {
+    @apply badge bg-sky-100 text-primary;
+  }
+  .sidebar-link {
+    @apply flex items-center gap-3 px-3 py-2 text-sm font-medium text-text-secondary rounded-lg transition-colors hover:bg-primary/5 hover:text-primary;
+  }
+  .sidebar-link.active {
+    @apply bg-primary/10 text-primary font-semibold;
+  }
+  .kpi-card {
+    @apply card p-5;
+  }
+  .kpi-value {
+    @apply text-3xl font-bold text-primary tabular-nums;
+  }
+  .kpi-label {
+    @apply text-sm text-text-secondary mt-1;
+  }
+  .kpi-trend {
+    @apply flex items-center gap-1 text-xs mt-2;
+  }
+  .kpi-trend-up {
+    @apply text-status-success;
+  }
+  .kpi-trend-down {
+    @apply text-status-danger;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.storm.200') transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: theme('colors.storm.200');
+    border-radius: 3px;
+  }
+}
