@@ -9,6 +9,18 @@
 
 import { DATA_FIELDS } from './dictionary';
 import * as XLSX from 'xlsx';
+import { UPLOAD_HEADERS } from './workbook';
+
+/** The seven-column standardized format used by the backend upload demonstration. */
+export function downloadExcelTemplate(): void {
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    UPLOAD_HEADERS,
+    ['CASE-001', '2026-09-19', 'Acute Gastroenteritis', 'Unit A', 'Male', '60+', 'Probable'],
+  ]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Mock Upload');
+  XLSX.writeFile(workbook, 'AFP_HSEU_Standardized_Template.xlsx');
+}
 
 /* ------------------------------------------------------------------ */
 /*  Standardized template (Table 1 headers)                             */
@@ -272,4 +284,3 @@ export async function parseWorkbook(file: File): Promise<ParsedWorkbook> {
     missingHeaders: DATA_FIELDS.filter((f) => f.required && !seen.has(norm(f.name))).map((f) => f.name),
   };
 }
-

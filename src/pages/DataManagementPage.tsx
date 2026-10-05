@@ -1,120 +1,20 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useAuth } from '../data/auth';
+import { WorkbookTables } from '../components/WorkbookTables';
+import { uploadExcel, type ExcelUploadResult } from '../data/api';
+import { dataSheets } from '../data/workbook';
+import { readImports, writeImports, recordCount, type SavedImport } from '../data/imports';
 import {
-  downloadTemplate, validateRows, buildErrorBatch, defectLabel,
-  parseWorkbook, ERROR_BATCH_SIZE,
-  type ValidationResult, type ParsedWorkbook,
+  downloadExcelTemplate, validateRows, buildErrorBatch, defectLabel,
+  ERROR_BATCH_SIZE,
+  type ValidationResult,
 } from '../data/pipeline';
-import { DATA_FIELDS } from '../data/dictionary';
 import {
-  Upload, FileSpreadsheet, Download, CheckCircle, AlertTriangle, XCircle,
-  Loader2, MoreHorizontal, History, Database, FileCheck2, CalendarCheck,
-  Tag, Building2, ChevronRight, Table2, FileUp, Check, X, Trash2, Pencil,
+  Upload, FileSpreadsheet, Download, XCircle,
+  Loader2, History, Database, FileCheck2,
+  ChevronRight, Table2, FileUp, Trash2, Pencil,
   Lock, FlaskConical,
 } from 'lucide-react';
-
-/* ------------------------------------------------------------------ */
-/*  Rule-based validator — derived from PDF Q1 (data dictionary first)   */
-/*  and Q3 (standardized templates, validate before insert).            */
-/*  No AI: every check is a deterministic rule.                        */
-/* ------------------------------------------------------------------ */
-
-type RuleStatus = 'pass' | 'warn' | 'fail';
-
-interface RuleResult {
-  id: string;
-  label: string;
-  requirement: string;
-  status: RuleStatus;
-  detail: string;
-  icon: React.ReactNode;
-}
-
-const RULE_DEFS = [
-  {
-    id: 'date-format',
-    label: 'Date format',
-    requirement: 'Report date must be YYYY-MM-DD',
-    icon: <CalendarCheck className="w-5 h-5" aria-hidden="true" />,
-    ok: 'Column "date_reported" parsed as ISO 8601 for all 1,024 rows.',
-    warn: 'Column "date_reported" contains 12 values as MM/DD/YYYY — coerced to ISO 8601.',
-    fail: 'Column "date_reported" has 3 unparseable values (e.g. "Sept 5", "10-11-2026").',
-  },
-  {
-    id: 'disease-class',
-    label: 'Disease classification',
-    requirement: 'Must match the HSEU coded disease list',
-    icon: <Tag className="w-5 h-5" aria-hidden="true" />,
-    ok: 'All 6 distinct values map to coded entries in the disease dictionary.',
-    warn: '1 value ("Severe Acute Malnutrition") is unmapped and was set aside for review.',
-    fail: '2 values are not in the disease dictionary: "Dengue-like illness", "HFMD".',
-  },
-  {
-    id: 'unit-name',
-    label: 'Unit name',
-    requirement: 'Must match a registered AFP medical unit',
-    icon: <Building2 className="w-5 h-5" aria-hidden="true" />,
-    ok: 'Reporting unit resolves to 15 registered facilities.',
-    warn: '1 unit name is a near-match ("AFPMC BGC" vs "AFPMC-BGC") and was normalized.',
-    fail: '2 unit names are unregistered and cannot be attributed to a facility.',
-  },
-] as const;
-
-/** Deterministic outcome so a given filename always validates the same way. */
-export function ruleStatusFor(ruleId: string, filename: string): RuleStatus {
-  const f = filename.toLowerCase();
-  if (f.includes('measles') || f.includes('outbreak')) {
-    return ruleId === 'disease-class' ? 'fail' : ruleId === 'unit-name' ? 'warn' : 'pass';
-  }
-  if (f.includes('weekly') || f.includes('surveillance')) {
-    return ruleId === 'unit-name' ? 'warn' : 'pass';
-  }
-  return 'pass';
-}
-
-export function buildResults(filename: string): RuleResult[] {
-  return RULE_DEFS.map((r) => {
-    const status = ruleStatusFor(r.id, filename);
-    return {
-      id: r.id,
-      label: r.label,
-      requirement: r.requirement,
-      status,
-      detail: status === 'pass' ? r.ok : status === 'warn' ? r.warn : r.fail,
-      icon: r.icon,
-    };
-  });
-}
-
-/* ------------------------------------------------------------------ */
-/*  Import history                                                      */
-/* ------------------------------------------------------------------ */
-
-type ImportStatus = 'completed' | 'completed_warning' | 'failed';
-
-interface ImportRecord {
-  id: string;
-  fileName: string;
-  dateImported: string;
-  records: number;
-  status: ImportStatus;
-  importedBy: string;
-}
-
-const STATUS_META: Record<ImportStatus, { label: string; cls: string }> = {
-  completed: { label: 'Completed', cls: 'badge-success' },
-  completed_warning: { label: 'Completed with Warnings', cls: 'badge-warning' },
-  failed: { label: 'Failed', cls: 'badge-danger' },
-};
-
-const mockImports: ImportRecord[] = [
-  { id: '1', fileName: 'HSEU_Dengue_Cases_Week_38.xlsx', dateImported: 'Sep 20, 2026 10:24 AM', records: 1024, status: 'completed', importedBy: 'Juan Dela Cruz' },
-  { id: '2', fileName: 'HSEU_Influenza_Weekly_Week_37.xlsx', dateImported: 'Sep 18, 2026 02:17 PM', records: 876, status: 'completed_warning', importedBy: 'Maria Santos' },
-  { id: '3', fileName: 'HSEU_Leptospirosis_Q3_Regional.xlsx', dateImported: 'Sep 10, 2026 09:11 AM', records: 567, status: 'completed', importedBy: 'Ana Reyes' },
-  { id: '4', fileName: 'HSEU_Weekly_Surveillance_Week_36.xlsx', dateImported: 'Sep 08, 2026 11:03 AM', records: 1024, status: 'completed_warning', importedBy: 'Carlos Mendoza' },
-  { id: '5', fileName: 'HSEU_Measles_Outbreak_RegionIII.xlsx', dateImported: 'Sep 05, 2026 03:45 PM', records: 234, status: 'failed', importedBy: 'Lisa Garcia' },
-  { id: '6', fileName: 'HSEU_COVID19_Cases_Week_35.xlsx', dateImported: 'Sep 01, 2026 08:30 AM', records: 1456, status: 'completed', importedBy: 'Robert Tan' },
-];
 
 /* ------------------------------------------------------------------ */
 /*  Page                                                                */
@@ -128,11 +28,19 @@ export function DataManagementPage() {
   const [dragActive, setDragActive] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [phase, setPhase] = useState<'idle' | 'parsing' | 'done'>('idle');
-  const [results, setResults] = useState<RuleResult[]>([]);
   const [search, setSearch] = useState('');
-  const [committed, setCommitted] = useState(false);
   const [batch, setBatch] = useState<ValidationResult | null>(null);
-  const [parsed, setParsed] = useState<{ wb: ParsedWorkbook; result: ValidationResult } | null>(null);
+  const [saved, setSaved] = useState<{ entries: SavedImport[]; error: string | null }>(() => {
+    try {
+      return { entries: typeof window === 'undefined' ? [] : readImports(window.localStorage), error: null };
+    } catch {
+      return { entries: [], error: 'Could not read saved imports from this browser.' };
+    }
+  });
+  const imports = saved.entries;
+  const [currentImportId, setCurrentImportId] = useState<string | null>(imports[0]?.id ?? null);
+  const [workbook, setWorkbook] = useState<ExcelUploadResult | null>(imports[0]?.workbook ?? null);
+  const uploadRequest = useRef<AbortController | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
 
   const importRef = useRef<HTMLDivElement | null>(null);
@@ -148,44 +56,47 @@ export function DataManagementPage() {
   /* Table 5 "Error Batch": run the real rule-based validator over 30 malformed
      records rather than faking a result from the filename. */
   const runErrorBatch = useCallback(() => {
-    setFile({ name: 'pilot_error_batch_30.csv', size: 30 } as File);
-    setPhase('done');
-    setCommitted(false);
-    setResults(RULE_DEFS.map((r) => ({ ...r, status: 'fail', detail: r.fail })));
     setBatch(validateRows(buildErrorBatch()));
   }, []);
 
   const accept = async (f: File) => {
     if (!canUpload()) return;
-    if (!/\.(xlsx|xls|csv)$/i.test(f.name)) {
-      setParseError('Unsupported file type. Use .xlsx, .xls or .csv.');
-      return;
-    }
+    uploadRequest.current?.abort();
+    const controller = new AbortController();
+    uploadRequest.current = controller;
     setParseError(null);
     setFile(f);
     setPhase('parsing');
-    setCommitted(false);
     setBatch(null);
-    setParsed(null);
-
-    /* Read the workbook, then run the same rule-based validator used by the
-       error batch, so an uploaded file is judged on its contents. */
+    setWorkbook(null);
+    setCurrentImportId(null);
     try {
-      const wb = await parseWorkbook(f);
-      const result = validateRows(wb.rows);
-      setParsed({ wb, result });
-    } catch (e) {
-      setParseError(e instanceof Error ? e.message : 'Could not read that file.');
-      setPhase('done');
-      return;
+      const uploaded = await uploadExcel(f, controller.signal);
+      if (!controller.signal.aborted) {
+        setWorkbook(uploaded);
+        setPhase('done');
+        const entry: SavedImport = {
+          id: crypto.randomUUID(), dateImported: new Date().toISOString(),
+          importedBy: role.label, workbook: uploaded,
+        };
+        const entries = [entry, ...imports];
+        try {
+          writeImports(window.localStorage, entries);
+          setSaved({ entries, error: null });
+          setCurrentImportId(entry.id);
+        } catch {
+          setSaved((previous) => ({ ...previous, error: 'The file was uploaded, but could not be saved in this browser. Browser storage may be full or unavailable. Its preview is available until you leave this page.' }));
+        }
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setParseError(error instanceof Error ? error.message : 'Could not upload that file.');
+        setPhase('idle');
+      }
     }
-
-    const built = buildResults(f.name);
-    built.forEach((_, i) => {
-      window.setTimeout(() => setResults(built.slice(0, i + 1)), 420 * (i + 1));
-    });
-    window.setTimeout(() => setPhase('done'), 420 * built.length + 260);
   };
+
+  useEffect(() => () => uploadRequest.current?.abort(), []);
 
   useEffect(() => {
     const prevent = (e: DragEvent) => e.preventDefault();
@@ -197,21 +108,34 @@ export function DataManagementPage() {
     };
   }, []);
 
-  const filtered = mockImports.filter(
+  const removeImport = (id: string) => {
+    if (!canUpload()) return;
+    const entries = imports.filter((entry) => entry.id !== id);
+    try {
+      writeImports(window.localStorage, entries);
+      setSaved({ entries, error: null });
+      if (currentImportId === id) {
+        setCurrentImportId(null);
+        setWorkbook(null);
+        setFile(null);
+        setPhase('idle');
+      }
+    } catch {
+      setSaved((previous) => ({ ...previous, error: 'Could not remove the import from browser storage. Please try again.' }));
+    }
+  };
+
+  const filtered = imports.filter(
     (r) =>
       !search ||
-      r.fileName.toLowerCase().includes(search.toLowerCase()) ||
+      r.workbook.filename.toLowerCase().includes(search.toLowerCase()) ||
       r.importedBy.toLowerCase().includes(search.toLowerCase()),
   );
-
-  const failedCount = results.filter((r) => r.status === 'fail').length;
-  const warnCount = results.filter((r) => r.status === 'warn').length;
-  const canCommit = phase === 'done' && failedCount === 0;
 
   const cards: { id: Section; label: string; desc: string; icon: React.ReactNode }[] = [
     { id: 'import', label: 'Import Data', desc: 'Upload a standardized workbook', icon: <FileUp className="w-5 h-5" aria-hidden="true" /> },
     { id: 'history', label: 'Import History', desc: 'Review previous uploads', icon: <History className="w-5 h-5" aria-hidden="true" /> },
-    { id: 'records', label: 'Manage Records', desc: 'Edit or remove stored rows', icon: <Database className="w-5 h-5" aria-hidden="true" /> },
+    { id: 'records', label: 'Manage Records', desc: 'Review browser-stored records', icon: <Database className="w-5 h-5" aria-hidden="true" /> },
   ];
 
   return (
@@ -219,7 +143,7 @@ export function DataManagementPage() {
       {/* 1. Sub-header */}
       <header>
         <h1 className="text-2xl font-bold text-primary">Data Management</h1>
-        <p className="text-text-secondary mt-1">Import standardized data files to the HSEU database</p>
+        <p className="text-text-secondary mt-1">Upload standardized Excel files and view their contents</p>
       </header>
 
       {/* Navigation action cards */}
@@ -276,9 +200,9 @@ export function DataManagementPage() {
                 Browse Files
                 <input
                   type="file"
-                  accept=".xlsx,.xls,.csv"
+                  accept=".xlsx"
                   className="sr-only"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void accept(f); }}
+                  onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void accept(f); }}
                 />
               </label>
             ) : (
@@ -287,7 +211,7 @@ export function DataManagementPage() {
                 Browse Files
               </span>
             )}
-            <p className="text-xs text-text-muted mt-3">.xlsx, .xls or .csv &middot; maximum 50 MB</p>
+            <p className="text-xs text-text-muted mt-3">.xlsx &middot; maximum 5 MB</p>
           </div>
 
           {/* Side card */}
@@ -297,15 +221,15 @@ export function DataManagementPage() {
             </span>
             <h3 className="text-base font-semibold text-primary">Use the Standard Template</h3>
             <p className="text-sm text-text-secondary mt-1.5 flex-1">
-              Uploads are rejected if the column headers or date formats drift from the official
-              template. Start from the current version every time.
+              Use the standardized seven-column Excel format for surveillance uploads.
+              Your file is uploaded automatically when selected or dropped here.
             </p>
-            <button onClick={downloadTemplate} className="btn-secondary w-full justify-center mt-4">
+            <button onClick={downloadExcelTemplate} className="btn-secondary w-full justify-center mt-4">
               <Download className="w-4 h-4" aria-hidden="true" />
               Download Template
             </button>
             <p className="text-xs text-text-muted mt-2 text-center">
-              {DATA_FIELDS.length} Table 1 columns &middot; updated Sep 2026
+              7 surveillance columns &middot; Excel workbook
             </p>
             <button
               onClick={runErrorBatch}
@@ -324,90 +248,26 @@ export function DataManagementPage() {
         <section className="card p-5 border-status-danger/40" aria-live="assertive">
           <h2 className="text-base font-semibold text-primary flex items-center gap-2">
             <XCircle className="w-5 h-5 text-status-danger" aria-hidden="true" />
-            Could not ingest {file?.name}
+            Could not upload {file?.name}
           </h2>
           <p className="text-sm text-text-secondary mt-1.5">{parseError}</p>
           <p className="text-xs text-text-muted mt-2">
-            Nothing was written. Download the standardized template and start from its headers.
+            Check the file and try again.
           </p>
         </section>
       )}
 
-      {/* Real parse + validation result for an uploaded workbook */}
-      {parsed && (
-        <section className="card p-6" aria-labelledby="parsed-heading" aria-live="polite">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div>
-              <h2 id="parsed-heading" className="text-base font-semibold text-primary">
-                Workbook validation &mdash; {parsed.wb.rows.length} rows read
-              </h2>
-              <p className="text-xs text-text-muted mt-0.5 font-mono">
-                sheet &ldquo;{parsed.wb.sheetName}&rdquo;
-                {parsed.wb.sheetNames.length > 1 && ` (+${parsed.wb.sheetNames.length - 1} more)`}
-              </p>
-            </div>
-            <div className="flex gap-4 text-center">
-              <div>
-                <p className="text-xl font-bold tabular-nums text-status-success">{parsed.result.accepted}</p>
-                <p className="text-[11px] text-text-muted">accepted</p>
-              </div>
-              <div>
-                <p className="text-xl font-bold tabular-nums text-status-danger">{parsed.result.rejected}</p>
-                <p className="text-[11px] text-text-muted">rejected</p>
-              </div>
-              <div>
-                <p className="text-xl font-bold tabular-nums text-status-warning">{parsed.result.warningCount}</p>
-                <p className="text-[11px] text-text-muted">warnings</p>
-              </div>
-            </div>
-          </div>
-
-          {(parsed.wb.unexpectedHeaders.length > 0 || parsed.wb.missingHeaders.length > 0) && (
-            <div className="mt-4 text-xs space-y-1">
-              {parsed.wb.unexpectedHeaders.length > 0 && (
-                <p className="text-status-warning">
-                  Ignored columns not in Table 1: {parsed.wb.unexpectedHeaders.join(', ')}
-                </p>
-              )}
-              {parsed.wb.missingHeaders.length > 0 && (
-                <p className="text-status-danger">
-                  Required columns missing: {parsed.wb.missingHeaders.join(', ')}
-                </p>
-              )}
-            </div>
-          )}
-
-          {parsed.result.issues.length > 0 && (
-            <div className="mt-4 max-h-56 overflow-y-auto border border-storm-200 rounded-lg">
-              <table className="w-full text-xs">
-                <caption className="sr-only">Validation issues by row</caption>
-                <thead className="sticky top-0 bg-storm-100">
-                  <tr>
-                    <th scope="col" className="px-3 py-2 text-left">Row</th>
-                    <th scope="col" className="px-3 py-2 text-left">Field</th>
-                    <th scope="col" className="px-3 py-2 text-left">Defect</th>
-                    <th scope="col" className="px-3 py-2 text-left">Message</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-storm-200">
-                  {parsed.result.issues.slice(0, 200).map((iss, i) => (
-                    <tr key={`${iss.row}-${iss.field}-${i}`}>
-                      <td className="px-3 py-1.5 font-mono tabular-nums">{iss.row}</td>
-                      <td className="px-3 py-1.5 font-mono whitespace-nowrap">{iss.field}</td>
-                      <td className="px-3 py-1.5 whitespace-nowrap">
-                        <span className={iss.severity === 'error' ? 'badge-danger' : 'badge-warning'}>
-                          {defectLabel(iss.defect)}
-                        </span>
-                      </td>
-                      <td className="px-3 py-1.5 text-text-secondary">{iss.message}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      )}
+      <div role="status" aria-live="polite">
+        {phase === 'parsing' && (
+          <p className="flex items-center gap-2 text-sm text-text-secondary">
+            <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+            Uploading {file?.name} and reading worksheets...
+          </p>
+        )}
+        {workbook && <p className="text-sm text-status-success">{workbook.filename}: {dataSheets(workbook).length} data worksheet(s) loaded.</p>}
+      </div>
+      {saved.error && <p role="alert" className="text-sm text-status-danger">{saved.error}</p>}
+      {workbook && <WorkbookTables key={currentImportId ?? workbook.filename} workbook={workbook} />}
 
       {/* Table 5 error batch report */}
       {batch && (
@@ -419,7 +279,7 @@ export function DataManagementPage() {
               </h2>
               <p className="text-xs text-text-muted mt-0.5">
                 Table 5 pilot target. Undated, duplicate IDs and missing required columns, run
-                through the same rule-based validator as a real upload.
+                through the Table 1 validator as a separate demonstration.
               </p>
             </div>
             <div className="flex gap-4 text-center">
@@ -480,117 +340,13 @@ export function DataManagementPage() {
         </section>
       )}
 
-      {/* 3. Automated schema & rule-based validator */}
-      {phase !== 'idle' && (
-        <section className="card p-6" aria-labelledby="validator-heading" aria-live="polite">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-3">
-              <span className="w-10 h-10 rounded-lg bg-storm-200/60 text-text-secondary flex items-center justify-center">
-                {phase === 'parsing' ? (
-                  <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" />
-                ) : failedCount > 0 ? (
-                  <XCircle className="w-5 h-5 text-status-danger" aria-hidden="true" />
-                ) : warnCount > 0 ? (
-                  <AlertTriangle className="w-5 h-5 text-status-warning" aria-hidden="true" />
-                ) : (
-                  <CheckCircle className="w-5 h-5 text-status-success" aria-hidden="true" />
-                )}
-              </span>
-              <div>
-                <h2 id="validator-heading" className="text-base font-semibold text-primary">
-                  Schema &amp; rule-based validation
-                </h2>
-                <p className="text-xs text-text-muted mt-0.5 font-mono">{file?.name}</p>
-              </div>
-            </div>
-            <button
-              onClick={() => { setPhase('idle'); setFile(null); setResults([]); setCommitted(false); }}
-              className="btn-ghost p-1.5"
-              aria-label="Dismiss validation results"
-            >
-              <X className="w-4 h-4" aria-hidden="true" />
-            </button>
-          </div>
-
-          <ol className="mt-5 space-y-3">
-            {RULE_DEFS.map((def, i) => {
-              const r = results[i];
-              return (
-                <li key={def.id} className="flex items-start gap-3 p-3 rounded-lg border border-storm-200">
-                  <span
-                    className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-                      !r
-                        ? 'bg-storm-200/60 text-text-muted'
-                        : r.status === 'pass'
-                          ? 'bg-status-success/10 text-status-success'
-                          : r.status === 'warn'
-                            ? 'bg-status-warning/10 text-status-warning'
-                            : 'bg-status-danger/10 text-status-danger'
-                    }`}
-                  >
-                    {!r ? (
-                      <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                    ) : r.status === 'pass' ? (
-                      <Check className="w-4 h-4" aria-hidden="true" />
-                    ) : r.status === 'warn' ? (
-                      <AlertTriangle className="w-4 h-4" aria-hidden="true" />
-                    ) : (
-                      <X className="w-4 h-4" aria-hidden="true" />
-                    )}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-text-primary">
-                      {i + 1}. {def.label}
-                      <span className="font-normal text-text-muted ml-2 text-xs">{def.requirement}</span>
-                    </p>
-                    <p className="text-xs text-text-secondary mt-1">
-                      {r ? r.detail : <span className="text-text-muted">Reading column&hellip;</span>}
-                    </p>
-                  </div>
-                  <span className="text-text-muted mt-1 flex-shrink-0">{def.icon}</span>
-                </li>
-              );
-            })}
-          </ol>
-
-          {phase === 'done' && (
-            <div className="mt-5 pt-5 border-t border-storm-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <p className="text-sm text-text-secondary">
-                {failedCount > 0 ? (
-                  <span className="text-status-danger font-medium">
-                    {failedCount} rule{failedCount > 1 ? 's' : ''} failed &mdash; row was not inserted.
-                  </span>
-                ) : warnCount > 0 ? (
-                  <span className="text-status-warning font-medium">
-                    All rules passed with {warnCount} warning{warnCount > 1 ? 's' : ''}. Safe to import.
-                  </span>
-                ) : (
-                  <span className="text-status-success font-medium">All rules passed. Safe to import.</span>
-                )}
-              </p>
-              <div className="flex items-center gap-2">
-                <button onClick={() => { setPhase('idle'); setFile(null); setResults([]); }} className="btn-secondary">
-                  Discard
-                </button>
-                <button
-                  disabled={!canCommit}
-                  onClick={() => setCommitted(true)}
-                  className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={failedCount > 0 ? 'Resolve the failed rules before importing' : undefined}
-                >
-                  <Database className="w-4 h-4" aria-hidden="true" />
-                  {committed ? 'Imported' : 'Import to Database'}
-                </button>
-              </div>
-            </div>
-          )}
-        </section>
-      )}
-
       {/* 4. Recent imports */}
       <section ref={historyRef} className="card scroll-mt-28" aria-labelledby="recent-heading">
         <div className="p-5 border-b border-storm-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <h2 id="recent-heading" className="text-base font-semibold text-primary">Recent Imports</h2>
+          <div>
+            <h2 id="recent-heading" className="text-base font-semibold text-primary">Recent Imports</h2>
+            <p className="text-xs text-text-muted mt-1">Saved in this browser. Select a file name to view its tables.</p>
+          </div>
           <input
             type="search"
             value={search}
@@ -616,27 +372,42 @@ export function DataManagementPage() {
             <tbody>
               {filtered.map((r) => (
                 <tr key={r.id}>
-                  <td className="font-mono text-xs">{r.fileName}</td>
-                  <td className="whitespace-nowrap text-text-secondary">{r.dateImported}</td>
-                  <td className="text-right font-mono tabular-nums">{r.records.toLocaleString()}</td>
-                  <td><span className={STATUS_META[r.status].cls}>{STATUS_META[r.status].label}</span></td>
+                  <td className="font-mono text-xs">
+                    <button type="button" className="text-primary underline hover:no-underline disabled:opacity-50"
+                      disabled={phase === 'parsing'}
+                      onClick={() => { setWorkbook(r.workbook); setCurrentImportId(r.id); setParseError(null); setPhase('done'); }}>
+                      {r.workbook.filename}
+                    </button>
+                  </td>
+                  <td className="whitespace-nowrap text-text-secondary">{new Date(r.dateImported).toLocaleString()}</td>
+                  <td className="text-right font-mono tabular-nums">{recordCount(r.workbook).toLocaleString()}</td>
+                  <td><span className="badge-success">Saved in browser</span></td>
                   <td className="whitespace-nowrap">{r.importedBy}</td>
                   <td className="text-right">
                     <button
-                      className="p-1.5 text-text-muted hover:text-text-primary hover:bg-primary/5 rounded transition-colors"
-                      aria-label={`Actions for ${r.fileName}`}
+                      type="button"
+                      onClick={() => removeImport(r.id)}
+                      disabled={!canUpload() || phase === 'parsing'}
+                      className="btn-secondary text-status-danger disabled:opacity-50 disabled:cursor-not-allowed"
+                      aria-label={`Remove ${r.workbook.filename}`}
                     >
-                      <MoreHorizontal className="w-4 h-4" aria-hidden="true" />
+                      <Trash2 className="w-4 h-4" aria-hidden="true" />
+                      Remove
                     </button>
                   </td>
                 </tr>
               ))}
+              {filtered.length === 0 && <tr>
+                <td colSpan={6} className="text-center text-text-muted py-8">
+                  {imports.length === 0 ? 'No imports yet. Upload an Excel file to get started.' : 'No imports match your search.'}
+                </td>
+              </tr>}
             </tbody>
           </table>
         </div>
 
         <div className="p-4 border-t border-storm-200 text-sm text-text-secondary">
-          Showing {filtered.length} of {mockImports.length} imports
+          Showing {filtered.length} of {imports.length} imports
         </div>
       </section>
 
@@ -648,15 +419,15 @@ export function DataManagementPage() {
         </div>
         <div className="p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <p className="text-sm text-text-secondary">
-            5,358 rows are currently stored from the imports above. Individual edits are recorded in
-            the audit trail.
+            {imports.reduce((total, entry) => total + recordCount(entry.workbook), 0).toLocaleString()} records
+            {' '}across {imports.length} imports are saved in this browser. Remove an import above to delete its saved data.
           </p>
           <div className="flex items-center gap-2">
-            <button className="btn-secondary">
+            <button disabled className="btn-secondary opacity-50 cursor-not-allowed" title="Record editing will be available when the database is connected">
               <Pencil className="w-4 h-4" aria-hidden="true" />
               Bulk edit
             </button>
-            <button className="btn-secondary text-status-danger border-status-danger/40 hover:bg-red-50">
+            <button disabled className="btn-secondary text-status-danger border-status-danger/40 opacity-50 cursor-not-allowed" title="Use Remove in Recent Imports to delete a saved workbook">
               <Trash2 className="w-4 h-4" aria-hidden="true" />
               Delete records
             </button>
