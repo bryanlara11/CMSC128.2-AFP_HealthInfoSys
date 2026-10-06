@@ -1,0 +1,63 @@
+# Deploys the app to GitHub Pages on every push to PADILLA.
+#
+# Uses the official Pages artifact flow, so no long-lived secret is needed:
+# the workflow's own GITHUB_TOKEN is granted pages:write and id-token:write.
+#
+# The repo root holds the TypeScript app; CMSC128.2-AFP_HealtInfoSys/ on the
+# main branch is a separate scaffold and is not built here.
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [PADILLA]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never cancel a run mid-publish; let it finish so Pages is never left partial.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify against the source document
+        run: |
+          npm run check:compliance
+          npm run check:gaps
+          npm run check:samples
+
+      - name: Build
+        run: npm run build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
