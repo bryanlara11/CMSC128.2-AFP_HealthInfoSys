@@ -43,11 +43,17 @@ The upload follows the backend's `.xlsx`/5 MB contract and displays the already 
 
 ## What remains for a complete backend connection
 
-The inspected PoC only extracts spreadsheets and returns their contents. It does not persist records or provide authentication, import history, records management, dashboard metrics, or analytics APIs. Uploads and Recent Imports are stored in this browser for now; the Manage Records count reflects those saved imports. Dashboard and analytics still use demo data. A successful upload does not insert records into a server database.
+The inspected PoC only extracts spreadsheets and returns their contents. It does not persist records or provide authentication, import history, records management, dashboard metrics, or analytics APIs. Uploads and Recent Imports are stored in this browser for now; the Manage Records count and Analysis & Export reflect those saved imports. The Home dashboard still uses demo data. A successful upload does not insert records into a server database.
 
 To connect the full system, the backend team needs to agree on the record schema and implement server-side validation, database insertion, record/history queries, dashboard/analytics queries, and authentication/role enforcement. The frontend can then call those endpoints instead of its demo arrays and local state. The current upload displays the standardized workbook supplied by the user.
 
 For deployment, Vite's development proxy is unavailable in the static build. Configure your host to forward `/api` to the deployed Express service, or set `VITE_API_BASE_URL` to the deployed backend origin **before building** and configure backend CORS for the frontend origin. The inspected backend has no CORS middleware. `localhost:3000` is only for local development.
+
+## Analysis of imported records
+
+Analysis & Export reads the saved browser imports. Its default period is Past 7 Days, including today. Choose Last 2 Weeks (14 days including today), This Month (through today), Last Month (the full previous calendar month), or an inclusive Custom Range. Filters use `Date_Reported`, not the upload timestamp, and use the browser's local calendar date. Older sample files may require Last Month or a custom range to show cases.
+
+The three summary cards, disease/age/sex charts, trend chart, and newest-first Filtered View Records all use the same filtered cases. Repeated case IDs use the newest upload; missing/invalid report dates are excluded and noted. The location chart is explicitly a placeholder and is omitted from exported reports. Excel exports contain all matching records and a summary worksheet; PDF uses the browser's Print / Save as PDF dialog with all matching records. Clearing or removing browser imports also removes them from analysis.
 
 ## Checks
 
@@ -55,6 +61,9 @@ For deployment, Vite's development proxy is unavailable in the static build. Con
 npm.cmd run build
 npm.cmd run lint
 node scripts/check-backend-api.mjs
+node scripts/check-analytics.mjs
+npx.cmd vite build --ssr scripts/check-analysis-render.tsx --outDir dist-ssr --logLevel error
+node dist-ssr/check-analysis-render.js
 ```
 
 The API checks use mocked responses to verify multipart requests, upload limits, backend errors, and response validation. To verify the real connection, start both servers and upload the backend's mock workbook using the steps above.

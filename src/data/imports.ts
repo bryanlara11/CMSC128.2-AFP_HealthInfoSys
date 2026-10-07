@@ -29,4 +29,5 @@ export function readImports(storage: Pick<Storage, 'getItem'>): SavedImport[] {
 
 export function writeImports(storage: Pick<Storage, 'setItem'>, entries: SavedImport[]): void {
   storage.setItem(IMPORTS_STORAGE_KEY, JSON.stringify(entries));
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('afp-imports-changed'));
 }

@@ -111,3 +111,18 @@
     border-radius: 3px;
   }
 }
+
+@media print {
+  body:has(.analysis-page) header,
+  body:has(.analysis-page) nav,
+  body:has(.analysis-page) footer {
+    display: none !important;
+  }
+  body:has(.analysis-page) #main-content { padding: 0; }
+  .analysis-page .card { box-shadow: none; }
+  .analysis-page article,
+  .analysis-page section[aria-label] { break-inside: avoid; }
+  .analysis-page .max-h-80 { max-height: none; overflow: visible; }
+  .analysis-page table { font-size: 9px; }
+  .analysis-page td, .analysis-page th { white-space: normal; padding: 5px; }
+}

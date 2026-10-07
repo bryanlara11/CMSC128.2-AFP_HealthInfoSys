@@ -1,71 +1,79 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  PieChart, Pie, Cell,
-  BarChart, Bar,
+  PieChart, Pie, Cell, BarChart, Bar,
 } from 'recharts';
 import {
   Download, FileSpreadsheet, FileText, ShieldCheck, X, Lock,
-  AlertTriangle, CheckCircle, MapPin, Table2,
+  AlertTriangle, CheckCircle, MapPin, Table2, Activity, Building2, Stethoscope,
 } from 'lucide-react';
-
-/* ------------------------------------------------------------------ */
-/*  Charts — series and categories restricted to Table 2 vocabulary      */
-/* ------------------------------------------------------------------ */
-
-const trendData = [
-  { week: 'W1 Jul', dengue: 180, influenza: 320, leptospirosis: 45, pneumonia: 260 },
-  { week: 'W2 Jul', dengue: 210, influenza: 280, leptospirosis: 62, pneumonia: 245 },
-  { week: 'W3 Jul', dengue: 265, influenza: 350, leptospirosis: 78, pneumonia: 288 },
-  { week: 'W4 Jul', dengue: 310, influenza: 390, leptospirosis: 95, pneumonia: 301 },
-  { week: 'W1 Aug', dengue: 295, influenza: 340, leptospirosis: 88, pneumonia: 276 },
-  { week: 'W2 Aug', dengue: 355, influenza: 415, leptospirosis: 112, pneumonia: 322 },
-  { week: 'W3 Aug', dengue: 402, influenza: 380, leptospirosis: 134, pneumonia: 356 },
-  { week: 'W4 Aug', dengue: 448, influenza: 455, leptospirosis: 156, pneumonia: 389 },
-  { week: 'W1 Sep', dengue: 512, influenza: 402, leptospirosis: 178, pneumonia: 412 },
-  { week: 'W2 Sep', dengue: 587, influenza: 438, leptospirosis: 205, pneumonia: 448 },
-  { week: 'W3 Sep', dengue: 634, influenza: 471, leptospirosis: 231, pneumonia: 476 },
-  { week: 'W4 Sep', dengue: 691, influenza: 512, leptospirosis: 264, pneumonia: 523 },
-];
-
-const locationData = [
-  { name: 'Luzon Command', value: 980, fill: '#2F4156' },
-  { name: 'AFP Education & Training Command', value: 742, fill: '#567CBD' },
-  { name: 'Visayas Command', value: 516, fill: '#5E6C58' },
-  { name: 'Mindanao Command', value: 388, fill: '#D6E0E2' },
-];
-
-/* Table 2 communicable conditions, ranked. */
-const diseaseRankData = [
-  { name: 'Dengue', cases: 4691 },
-  { name: 'Pneumonia', cases: 4155 },
-  { name: 'Influenza', cases: 3882 },
-  { name: 'Acute Gastroenteritis', cases: 2874 },
-  { name: 'Leptospirosis', cases: 1648 },
-  { name: 'UTI', cases: 1187 },
-];
-
-/* ------------------------------------------------------------------ */
-/*  Records — full Table 1 schema, dictionary-backed                    */
-/* ------------------------------------------------------------------ */
-
-import { DATA_FIELDS, CASE_CLASSIFICATIONS } from '../data/dictionary';
-import { RECORDS, CONDITIONS_PRESENT } from '../data/records';
+import * as XLSX from 'xlsx';
 import { useAuth } from '../data/auth';
-import { downloadCsv } from '../data/export';
+import { useSavedImports } from '../data/useSavedImports';
+import {
+  caseCounts, dateRange, diseaseTrends, filterRecords, importedRecords, localToday, summary,
+  type AnalysisRecord, type CaseCount, type DatePreset,
+} from '../data/analytics';
 
-type Classification = (typeof CASE_CLASSIFICATIONS)[number];
+const COLORS = ['#567CBD', '#5E6C58', '#B77825', '#9F4651', '#547F88', '#745D93', '#2F4156', '#8B7756'];
+const TOOLTIP_STYLE = { background: '#FEFCF6', border: '1px solid #D6E0E2', borderRadius: 8, fontSize: 12 };
+const DATE_OPTIONS: Array<{ value: DatePreset; label: string }> = [
+  { value: 'last7', label: 'Past 7 Days' },
+  { value: 'last14', label: 'Last 2 Weeks' },
+  { value: 'thisMonth', label: 'This Month' },
+  { value: 'lastMonth', label: 'Last Month' },
+  { value: 'custom', label: 'Custom Range' },
+];
+const LOCATION_EXAMPLE = [
+  { name: 'Luzon', cases: 12 }, { name: 'Visayas', cases: 8 }, { name: 'Mindanao', cases: 5 },
+];
+const RECORD_PAGE_SIZE = 50;
 
-const CLASS_STYLE: Record<Classification, string> = {
-  Confirmed: 'badge-danger',
-  Probable: 'badge-warning',
-  Suspected: 'badge-info',
-};
+function ChartCard({ title, hint, populated, children, className = '' }: {
+  title: string; hint: string; populated: boolean; children: ReactNode; className?: string;
+}) {
+  return <section className={`card p-5 min-w-0 ${className}`} aria-label={title}>
+    <h2 className="text-base font-semibold text-primary">{title}</h2>
+    <p className="text-xs text-text-muted mt-1 mb-4">{hint}</p>
+    {populated ? children : <div className="h-64 flex items-center justify-center text-sm text-text-muted text-center">
+      No cases in the selected period.
+    </div>}
+  </section>;
+}
 
+function CountBars({ data }: { data: CaseCount[] }) {
+  return <div className="max-h-80 overflow-y-auto">
+    <div style={{ height: Math.max(256, data.length * 38) }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} layout="vertical" margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#D6E0E2" />
+          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+          <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11 }} tickLine={false} />
+          <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: '#F4EFE0' }} />
+          <Bar dataKey="cases" name="Cases" fill={COLORS[0]} radius={[0, 4, 4, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  </div>;
+}
 
-/* ------------------------------------------------------------------ */
-/*  Privacy & DOH aggregation export modal                              */
-/* ------------------------------------------------------------------ */
+function AnalysisRecordsTable({ records, stripIds = false }: { records: AnalysisRecord[]; stripIds?: boolean }) {
+  return <table className="table-base">
+    <thead><tr>
+      {[...(stripIds ? [] : ['Case ID']), 'Date Reported', 'Disease', 'Reporting Unit', 'Age Group', 'Sex', 'Classification', 'Imported File'].map((header) => <th key={header} scope="col">{header}</th>)}
+    </tr></thead>
+    <tbody>
+      {records.map((record) => <tr key={record.key}>
+        {!stripIds && <td className="font-mono text-xs whitespace-nowrap">{record.caseId || 'Not specified'}</td>}
+        <td className="font-mono text-xs whitespace-nowrap">{record.date}</td>
+        <td>{record.disease}</td><td>{record.unit}</td><td className="whitespace-nowrap">{record.ageGroup}</td><td>{record.sex}</td>
+        <td><span className={record.classification === 'Confirmed' ? 'badge-danger' : record.classification === 'Probable' ? 'badge-warning' : 'badge-info'}>{record.classification}</span></td>
+        <td className="text-xs text-text-muted">{record.source}</td>
+      </tr>)}
+      {records.length === 0 && <tr><td colSpan={stripIds ? 7 : 8} className="py-8 text-center text-text-muted">No records match the selected filters.</td></tr>}
+    </tbody>
+  </table>;
+}
 
 type ExportFormat = 'pdf' | 'xlsx';
 
@@ -140,8 +148,7 @@ export function ExportModal({
                   Strip Personally Identifiable Information (PII) / Patient Identifiers
                 </span>
                 <span className="block text-xs text-text-muted mt-1">
-                  Exports aggregated views compliant with upper command reporting and DOH 2-page
-                  summary form requirements while stripping personal identifiers
+                  Export the filtered records. Case identifiers can be omitted from the exported file.
                 </span>
               </span>
             </label>
@@ -150,8 +157,7 @@ export function ExportModal({
               <p className="px-4 pb-3 -mt-1 flex items-start gap-2 text-xs text-status-success">
                 <CheckCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
                 <span>
-                  Patient names, ranks and record linkage keys will be removed. Age is reported in
-                  5-year bands and Sex retained, so the output carries no direct identifier.
+                  Case IDs will be omitted. The imported age groups and sex values are retained. Patient names and patient IDs are not included in this view.
                 </span>
               </p>
             ) : (
@@ -184,7 +190,7 @@ export function ExportModal({
             <legend className="text-sm font-medium text-text-primary mb-2">Report format</legend>
             <div className="grid grid-cols-2 gap-2">
               {([
-                { id: 'pdf', label: 'PDF Report', hint: '2-page summary form', icon: FileText },
+                { id: 'pdf', label: 'PDF Report', hint: 'Print or save as PDF', icon: FileText },
                 { id: 'xlsx', label: 'Excel Export', hint: 'Tabular data', icon: FileSpreadsheet },
               ] as const).map(({ id, label, hint, icon: Icon }) => (
                 <button
@@ -210,7 +216,7 @@ export function ExportModal({
 
           <p className="flex items-start gap-2 text-xs text-text-muted">
             <Lock className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" aria-hidden="true" />
-            Every export is written to the audit trail with your name, role and timestamp.
+            Exports contain only the records in the selected date range and disease filter.
           </p>
         </div>
 
@@ -223,7 +229,7 @@ export function ExportModal({
             className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Download className="w-4 h-4" aria-hidden="true" />
-            {format === 'pdf' ? 'Generate PDF Report' : 'Export Excel'}
+            {format === 'pdf' ? 'Print / Save as PDF' : 'Export Excel'}
           </button>
         </div>
       </div>
@@ -231,242 +237,221 @@ export function ExportModal({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Page                                                                */
-/* ------------------------------------------------------------------ */
-
 export function AnalysisExportPage() {
   const { canAdministerSurveillance, role } = useAuth();
+  const { imports, error } = useSavedImports();
+  const [preset, setPreset] = useState<DatePreset>('last7');
+  const [today, setToday] = useState(localToday);
+  const [custom, setCustom] = useState(() => ({ start: localToday(), end: localToday() }));
+  const [disease, setDisease] = useState('');
   const [showExport, setShowExport] = useState(false);
-  const [diseaseFilter, setDiseaseFilter] = useState('All Conditions');
-  const [showAllFields, setShowAllFields] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const [printStripIds, setPrintStripIds] = useState(true);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const visible = useMemo(
-    () => (diseaseFilter === 'All Conditions' ? RECORDS : RECORDS.filter((r) => r.condition === diseaseFilter)),
-    [diseaseFilter],
-  );
+  useEffect(() => {
+    const timer = window.setInterval(() => setToday(localToday()), 60_000);
+    return () => { window.clearInterval(timer); if (toastTimer.current) clearTimeout(toastTimer.current); };
+  }, []);
+
+  const parsed = useMemo(() => importedRecords(imports), [imports]);
+  const range = useMemo(() => dateRange(preset, today, custom), [preset, today, custom]);
+  const diseaseOptions = useMemo(() => caseCounts(parsed.records, 'disease').map((item) => item.name).sort(), [parsed.records]);
+  // Removing the last import for a selected disease restores the all-diseases view.
+  const selectedDisease = diseaseOptions.includes(disease) ? disease : '';
+  const visible = useMemo(() => filterRecords(parsed.records, range, selectedDisease), [parsed.records, range, selectedDisease]);
+  const metrics = useMemo(() => summary(visible), [visible]);
+  const diseaseCases = useMemo(() => caseCounts(visible, 'disease'), [visible]);
+  const ageCases = useMemo(() => caseCounts(visible, 'ageGroup'), [visible]);
+  const sexCases = useMemo(() => caseCounts(visible, 'sex'), [visible]);
+  const trend = useMemo(() => diseaseTrends(visible, range), [visible, range]);
+  const lastPage = Math.max(0, Math.ceil(visible.length / RECORD_PAGE_SIZE) - 1);
+  const currentPage = Math.min(page, lastPage);
+  const start = currentPage * RECORD_PAGE_SIZE;
+  const displayed = visible.slice(start, start + RECORD_PAGE_SIZE);
 
   const handleExport = (format: ExportFormat, stripPii: boolean) => {
+    if (!canAdministerSurveillance() || !range || visible.length === 0) return;
     setShowExport(false);
-    if (format === 'xlsx') {
-      downloadCsv('AFP_HSEU_Surveillance_Export.csv', visible, stripPii);
+    if (format === 'pdf') {
+      setPrintStripIds(stripPii);
+      // Allow the modal to unmount before opening the browser's print dialog.
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.print()));
+      return;
     }
-    setToast(
-      `${format === 'pdf' ? 'PDF report' : 'Excel export'} generated for ${visible.length} records — ${
-        stripPii ? 'PII stripped, DOH-compliant' : 'identifiable data included, audit logged'
-      }.`,
-    );
-    window.setTimeout(() => setToast(null), 6000);
+    const headers = [...(stripPii ? [] : ['Case_ID']), 'Date_Reported', 'Disease', 'Reporting_Unit', 'Sex', 'Age_Group', 'Case_Classification'];
+    const rows = visible.map((record) => [
+      ...(stripPii ? [] : [record.caseId]), record.date, record.disease, record.unit,
+      record.sex, record.ageGroup, record.classification,
+    ]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([headers, ...rows]), 'Filtered Records');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ['Metric', 'Value'], ['Start date', range.start], ['End date', range.end],
+      ['Disease filter', selectedDisease || 'All Diseases'], ['Total cases', metrics.total],
+      ['Most common disease', metrics.leaders.map((item) => item.name).join(', ')], ['Affected units', metrics.units],
+    ]), 'Summary');
+    XLSX.writeFile(workbook, `AFP_HSEU_${range.start}_${range.end}.xlsx`);
+    setToast(`Exported ${visible.length.toLocaleString()} filtered records to Excel.`);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 6000);
   };
 
-  const stroke = { strokeWidth: 2, dot: { r: 3 } };
-
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-6 analysis-page">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-primary">Analysis &amp; Export</h1>
-          <p className="text-text-secondary mt-1">Epidemiological trends and record-level analysis</p>
+          <p className="text-text-secondary mt-1">Cases and trends from your imported surveillance records</p>
         </div>
-        <div className="flex items-center gap-3">
-          <select
-            value={diseaseFilter}
-            onChange={(e) => setDiseaseFilter(e.target.value)}
-            className="input-base w-auto"
-            aria-label="Filter by disease"
-          >
-            {['All Conditions', ...CONDITIONS_PRESENT].map((d) => (
-              <option key={d}>{d}</option>
-            ))}
-          </select>
-          {canAdministerSurveillance() ? (
-            <button onClick={() => setShowExport(true)} className="btn-primary whitespace-nowrap" data-tour="privacy-export">
-              <Download className="w-4 h-4" aria-hidden="true" />
-              Export Current View
-            </button>
-          ) : (
-            <span
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-storm-100 text-text-muted text-sm font-semibold cursor-not-allowed"
-              title={`Export requires full surveillance access. "${role.label}" has ${role.grants.surveillance === 'no-access' ? 'no' : 'view-only'} access.`}
-            >
-              <Lock className="w-4 h-4" aria-hidden="true" />
-              Export Current View
-              <span className="sr-only">— unavailable for {role.label}</span>
-            </span>
-          )}
-        </div>
+        <button type="button" onClick={() => setShowExport(true)}
+          disabled={!canAdministerSurveillance() || visible.length === 0 || !range}
+          title={!canAdministerSurveillance() ? `Export unavailable for ${role.label}` : undefined}
+          className="btn-primary whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed print:hidden"
+          data-tour="privacy-export">
+          <Download className="w-4 h-4" aria-hidden="true" />Export Current View
+        </button>
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <section className="card p-5 xl:col-span-2" aria-labelledby="trend-h">
-          <h2 id="trend-h" className="text-base font-semibold text-primary mb-4">Disease Trends Over Time</h2>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trendData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#D6E0E2" />
-                <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#6B7B8A' }} tickLine={false} axisLine={{ stroke: '#D6E0E2' }} />
-                <YAxis tick={{ fontSize: 11, fill: '#6B7B8A' }} tickLine={false} axisLine={{ stroke: '#D6E0E2' }} />
-                <Tooltip contentStyle={{ background: '#FEFCF6', border: '1px solid #D6E0E2', borderRadius: 8, fontSize: 12 }} labelStyle={{ fontWeight: 600, color: '#162A2C' }} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Line type="monotone" dataKey="dengue" name="Dengue" stroke="#567CBD" {...stroke} />
-                <Line type="monotone" dataKey="pneumonia" name="Pneumonia" stroke="#5E6C58" {...stroke} />
-                <Line type="monotone" dataKey="leptospirosis" name="Leptospirosis" stroke="#F57F17" {...stroke} />
-                <Line type="monotone" dataKey="influenza" name="Influenza" stroke="#C62828" {...stroke} />
-              </LineChart>
-            </ResponsiveContainer>
+      <section className="card p-5 space-y-4 print:hidden" aria-label="Analysis filters" data-tour="filter-panel">
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="flex-1 min-w-48">
+            <label htmlFor="analysis-period" className="block text-xs font-semibold text-text-secondary mb-2">Reporting Period</label>
+            <select id="analysis-period" value={preset} className="input-base w-full"
+              onChange={(event) => { setPreset(event.target.value as DatePreset); setPage(0); }}>
+              {DATE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
           </div>
-        </section>
+          <div className="flex-1 min-w-48">
+            <label htmlFor="analysis-disease" className="block text-xs font-semibold text-text-secondary mb-2">Disease</label>
+            <select id="analysis-disease" value={selectedDisease} className="input-base w-full"
+              onChange={(event) => { setDisease(event.target.value); setPage(0); }}>
+              <option value="">All Diseases</option>
+              {diseaseOptions.map((name) => <option key={name} value={name}>{name}</option>)}
+            </select>
+          </div>
+          {preset === 'custom' && <>
+            <div className="flex-1 min-w-40">
+              <label htmlFor="analysis-start" className="block text-xs font-semibold text-text-secondary mb-2">From</label>
+              <input id="analysis-start" type="date" className="input-base w-full" value={custom.start}
+                onChange={(event) => { setCustom({ ...custom, start: event.target.value }); setPage(0); }} />
+            </div>
+            <div className="flex-1 min-w-40">
+              <label htmlFor="analysis-end" className="block text-xs font-semibold text-text-secondary mb-2">To</label>
+              <input id="analysis-end" type="date" className="input-base w-full" value={custom.end}
+                onChange={(event) => { setCustom({ ...custom, end: event.target.value }); setPage(0); }} />
+            </div>
+          </>}
+          <button type="button" className="btn-secondary" onClick={() => { setPreset('last7'); setDisease(''); setPage(0); }}>Reset Filters</button>
+        </div>
+        <p className="text-xs text-text-muted">Dates use the record's report date. Past 7 Days and Last 2 Weeks include today; This Month runs through today.</p>
+        {!range && <p role="alert" className="text-sm text-status-danger">Enter a valid start and end date, with the start on or before the end.</p>}
+      </section>
 
-        <section className="card p-5" aria-labelledby="loc-h">
-          <h2 id="loc-h" className="text-base font-semibold text-primary mb-4">Cases by Location</h2>
-          <div className="h-48">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-text-muted" aria-live="polite">
+        <span>{range ? `${range.start} to ${range.end} (inclusive)` : 'Invalid date range'}{selectedDisease ? ` · ${selectedDisease}` : ' · All diseases'}</span>
+        <span>{imports.length} saved import(s) · {parsed.records.length.toLocaleString()} unique dated records</span>
+      </div>
+      {error && <p role="alert" className="text-sm text-status-danger">{error}</p>}
+      {(parsed.invalidDates > 0 || parsed.duplicates > 0 || parsed.unsupportedSheets > 0) && <p className="text-xs text-text-muted">
+        {parsed.invalidDates > 0 && `${parsed.invalidDates} record(s) with missing or invalid dates excluded. `}
+        {parsed.duplicates > 0 && `${parsed.duplicates} repeated case ID(s) counted once using the newest upload. `}
+        {parsed.unsupportedSheets > 0 && `${parsed.unsupportedSheets} worksheet(s) without date and disease columns skipped.`}
+      </p>}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <article className="kpi-card flex items-start justify-between gap-3">
+          <div><p className="kpi-label">Total Cases</p><p className="kpi-value mt-1">{metrics.total.toLocaleString()}</p><p className="text-xs text-text-muted mt-2">Unique cases in the filtered view</p></div>
+          <span className="p-3 rounded-xl bg-primary/10 text-primary"><Activity className="w-5 h-5" aria-hidden="true" /></span>
+        </article>
+        <article className="kpi-card flex items-start justify-between gap-3">
+          <div className="min-w-0"><p className="kpi-label">Most Common Disease</p>
+            <p className="text-xl font-bold text-primary mt-2 break-words">{metrics.leaders[0]?.name ?? 'No cases'}{metrics.leaders.length > 1 ? ` (+${metrics.leaders.length - 1} tied)` : ''}</p>
+            <p className="text-xs text-text-muted mt-2">{metrics.leaders[0] ? `${metrics.leaders[0].cases.toLocaleString()} cases${metrics.leaders.length > 1 ? ' per tied disease' : ''}` : 'No cases in this period'}</p>
+          </div>
+          <span className="p-3 rounded-xl bg-forest-600/10 text-forest-600"><Stethoscope className="w-5 h-5" aria-hidden="true" /></span>
+        </article>
+        <article className="kpi-card flex items-start justify-between gap-3">
+          <div><p className="kpi-label">Affected Units</p><p className="kpi-value mt-1">{metrics.units.toLocaleString()}</p><p className="text-xs text-text-muted mt-2">Distinct reporting units with cases</p></div>
+          <span className="p-3 rounded-xl bg-accent-teal/10 text-accent-teal"><Building2 className="w-5 h-5" aria-hidden="true" /></span>
+        </article>
+      </div>
+
+      {visible.length === 0 && range && <div className="card p-5 text-sm text-text-secondary" role="status">
+        {parsed.records.length === 0 ? 'Upload a standardized Excel file in Data Management to start viewing case analysis.' : 'No imported cases match these filters. Choose another period or disease.'}
+        {parsed.records.length > 0 && <p className="text-xs text-text-muted mt-2">Available report dates: {parsed.records.at(-1)?.date} to {parsed.records[0]?.date}.</p>}
+      </div>}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <ChartCard title="Cases by Disease" hint="Unique cases for each imported disease" populated={visible.length > 0}>
+          <CountBars data={diseaseCases} />
+        </ChartCard>
+        <ChartCard title="Cases by Age Group" hint="Age groups as reported in the imported records" populated={visible.length > 0}>
+          <CountBars data={ageCases} />
+        </ChartCard>
+        <ChartCard title="Cases by Sex" hint="Sex distribution within the filtered view" populated={visible.length > 0}>
+          <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={locationData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={70} paddingAngle={2}>
-                  {locationData.map((e) => (
-                    <Cell key={e.name} fill={e.fill} />
-                  ))}
+                <Pie data={sexCases} dataKey="cases" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={2}>
+                  {sexCases.map((item, index) => <Cell key={item.name} fill={COLORS[index % COLORS.length]} />)}
                 </Pie>
-                <Tooltip contentStyle={{ background: '#FEFCF6', border: '1px solid #D6E0E2', borderRadius: 8, fontSize: 12 }} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
               </PieChart>
             </ResponsiveContainer>
           </div>
-          <ul className="mt-3 space-y-1.5">
-            {locationData.map((d) => (
-              <li key={d.name} className="flex items-center justify-between text-xs gap-2">
-                <span className="flex items-center gap-2 min-w-0">
-                  <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: d.fill }} aria-hidden="true" />
-                  <span className="text-text-secondary truncate">{d.name}</span>
-                </span>
-                <span className="font-mono tabular-nums text-text-primary">{d.value.toLocaleString()}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
+          <div className="flex flex-wrap justify-center gap-4 mt-3 text-xs text-text-secondary">
+            {sexCases.map((item) => <span key={item.name}>{item.name}: <strong className="text-primary">{item.cases}</strong></span>)}
+          </div>
+        </ChartCard>
+        <ChartCard title="Cases by Location" hint="Sample display only. Location mapping is not connected to imported data or filters." populated className="print:hidden">
+          <span className="inline-flex items-center gap-1.5 badge-warning mb-3"><MapPin className="w-3.5 h-3.5" aria-hidden="true" />Placeholder</span>
+          <CountBars data={LOCATION_EXAMPLE} />
+        </ChartCard>
+        <ChartCard title="Disease Trends Over Time" hint={`Cases by report date, grouped by ${trend.interval}. Dates without cases show zero.`} populated={visible.length > 0} className="lg:col-span-2">
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={trend.rows} margin={{ top: 10, right: 15, left: -10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#D6E0E2" />
+                <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={35} tickFormatter={(value: string) => value.slice(5)} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                {trend.diseases.map((item, index) => <Line key={item.key} dataKey={item.key} name={item.name}
+                  stroke={COLORS[index % COLORS.length]} strokeWidth={2} type="linear" dot={{ r: 3 }} />)}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </ChartCard>
       </div>
 
-      <section className="card p-5" aria-labelledby="rank-h">
-        <h2 id="rank-h" className="text-base font-semibold text-primary mb-4">Cases by Disease / Condition</h2>
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={diseaseRankData} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#D6E0E2" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 11, fill: '#6B7B8A' }} tickLine={false} axisLine={{ stroke: '#D6E0E2' }} />
-              <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11, fill: '#6B7B8A' }} tickLine={false} axisLine={{ stroke: '#D6E0E2' }} />
-              <Tooltip cursor={{ fill: '#F4EFE0' }} contentStyle={{ background: '#FEFCF6', border: '1px solid #D6E0E2', borderRadius: 8, fontSize: 12 }} />
-              <Bar dataKey="cases" name="Cases" fill="#2F4156" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </section>
-
-      {/* Records table */}
       <section className="card" aria-labelledby="rec-h">
-        <div className="p-5 border-b border-storm-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <h2 id="rec-h" className="text-base font-semibold text-primary">Filtered View Records</h2>
-          <span className="inline-flex items-center gap-1.5 text-xs text-text-muted px-2 py-1 rounded bg-storm-200/50">
-            <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
-            No direct identifiers displayed
-          </span>
+        <div className="p-5 border-b border-storm-200 flex flex-wrap items-center justify-between gap-3">
+          <div><h2 id="rec-h" className="text-base font-semibold text-primary">Filtered View Records</h2>
+            <p className="text-xs text-text-muted mt-1">The records behind these charts, newest report date first.</p></div>
+          <span className="inline-flex items-center gap-1.5 text-xs text-text-muted"><ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />Patient names and patient IDs withheld</span>
         </div>
-
-        <div className="table-container border-0 rounded-none">
-          <table className="table-base">
-            <thead>
-              <tr>
-                <th scope="col">Record ID</th>
-                <th scope="col">Date Reported</th>
-                <th scope="col">Disease / Condition</th>
-                <th scope="col">Classification</th>
-                <th scope="col">Unit / Station</th>
-                <th scope="col">Location</th>
-                <th scope="col" className="text-right">Age</th>
-                <th scope="col">Sex</th>
-                {showAllFields && (
-                  <>
-                    <th scope="col">Personnel Category</th>
-                    <th scope="col">Unit Branch</th>
-                    <th scope="col">Service Type</th>
-                    <th scope="col">Discharge Date</th>
-                    <th scope="col">Logged By Role</th>
-                    <th scope="col">Outcome Status</th>
-                  </>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((r) => (
-                <tr key={r.recordId}>
-                  <td className="font-mono text-xs whitespace-nowrap">{r.recordId}</td>
-                  <td className="font-mono text-xs whitespace-nowrap">{r.encounterDate}</td>
-                  <td className="whitespace-nowrap">{r.condition}</td>
-                  <td><span className={CLASS_STYLE[r.caseClassification as Classification]}>{r.caseClassification}</span></td>
-                  <td className="whitespace-nowrap">{r.reportingFacilityUnit}</td>
-                  <td className="whitespace-nowrap">
-                    <span className="inline-flex items-center gap-1">
-                      <MapPin className="w-3 h-3" aria-hidden="true" />
-                      {r.location}
-                    </span>
-                  </td>
-                  <td className="text-right tabular-nums">{r.age}</td>
-                  <td>{r.sex === 'Male' ? 'M' : 'F'}</td>
-                  {showAllFields && (
-                    <>
-                      <td className="whitespace-nowrap text-text-secondary">{r.personnelCategory}</td>
-                      <td className="whitespace-nowrap text-text-secondary">{r.unitBranch}</td>
-                      <td className="whitespace-nowrap text-text-secondary">{r.serviceType}</td>
-                      <td className="font-mono text-xs whitespace-nowrap text-text-secondary">{r.dischargeDate || '—'}</td>
-                      <td className="whitespace-nowrap text-text-secondary">{r.loggedByRole}</td>
-                      <td className="whitespace-nowrap text-text-secondary">{r.outcomeStatus}</td>
-                    </>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="table-container border-0 rounded-none print:hidden">
+          <AnalysisRecordsTable records={displayed} />
         </div>
-
-        <div className="p-4 border-t border-storm-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <p className="text-xs text-text-muted flex items-center gap-1.5">
-            <Lock className="w-3.5 h-3.5" aria-hidden="true" />
-            Patient ID and Names are withheld — synthetic identifiers stay internal.
-          </p>
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
-              <input
-                type="checkbox"
-                checked={showAllFields}
-                onChange={(e) => setShowAllFields(e.target.checked)}
-                className="rounded border-storm-300"
-              />
-              Show all {DATA_FIELDS.length} Table 1 fields
-            </label>
-            <p className="text-xs text-text-secondary tabular-nums whitespace-nowrap">
-              Showing {visible.length} of {RECORDS.length} records
-            </p>
-          </div>
+        <div className="hidden print:block"><AnalysisRecordsTable records={visible} stripIds={printStripIds} /></div>
+        <div className="p-4 border-t border-storm-200 flex flex-wrap items-center justify-between gap-3 text-xs text-text-secondary print:hidden">
+          <span>Showing {visible.length > 0 ? start + 1 : 0}–{Math.min(start + RECORD_PAGE_SIZE, visible.length)} of {visible.length.toLocaleString()} matching records</span>
+          {lastPage > 0 && <div className="flex items-center gap-3 print:hidden">
+            <button type="button" disabled={currentPage === 0} className="btn-secondary disabled:opacity-50" onClick={() => setPage(currentPage - 1)}>Previous</button>
+            <span>Page {currentPage + 1} of {lastPage + 1}</span>
+            <button type="button" disabled={currentPage === lastPage} className="btn-secondary disabled:opacity-50" onClick={() => setPage(currentPage + 1)}>Next</button>
+          </div>}
         </div>
       </section>
 
-      {showExport && (
-        <ExportModal onClose={() => setShowExport(false)} onExport={handleExport} rowCount={visible.length} />
-      )}
-
-      {toast && (
-        <div className="fixed bottom-6 right-6 z-50 max-w-sm card p-4 flex items-start gap-3" role="status">
-          <CheckCircle className="w-5 h-5 text-status-success flex-shrink-0 mt-0.5" aria-hidden="true" />
-          <div className="flex-1">
-            <p className="text-sm font-medium text-text-primary">Export generated</p>
-            <p className="text-xs text-text-muted mt-0.5">{toast}</p>
-          </div>
-          <button onClick={() => setToast(null)} className="text-text-muted hover:text-text-primary" aria-label="Dismiss">
-            <X className="w-4 h-4" aria-hidden="true" />
-          </button>
-        </div>
-      )}
+      {showExport && <ExportModal onClose={() => setShowExport(false)} onExport={handleExport} rowCount={visible.length} />}
+      {toast && <div className="fixed bottom-6 right-6 z-50 max-w-sm card p-4 flex items-start gap-3 print:hidden" role="status">
+        <CheckCircle className="w-5 h-5 text-status-success" aria-hidden="true" /><p className="text-sm text-text-secondary">{toast}</p>
+        <button type="button" onClick={() => setToast(null)} aria-label="Dismiss export message"><X className="w-4 h-4" /></button>
+      </div>}
     </div>
   );
 }

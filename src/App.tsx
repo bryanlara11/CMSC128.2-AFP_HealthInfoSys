@@ -42,13 +42,6 @@ function Shell() {
         activeTab={activeTab}
         onTabChange={tab}
         onStartTour={startTour}
-        showSidebar={activeTab === 'analysis-export'}
-        sidebarProps={{
-          onApplyFilters: () => undefined,
-          onClearFilters: () => undefined,
-          onExport: () => undefined,
-          onSaveFilter: () => undefined,
-        }}
       >
         {activeTab === 'home' && <HomePage onNavigate={tab} />}
         {activeTab === 'data-management' && ingestionVisible && <DataManagementPage />}
