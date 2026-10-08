@@ -1,2 +1,0 @@
-This is a plain text file, not an Excel workbook.
-It should be rejected by the upload endpoint.

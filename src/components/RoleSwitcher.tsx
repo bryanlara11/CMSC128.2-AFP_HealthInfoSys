@@ -79,14 +79,15 @@ export function RoleSwitcher() {
                             key={p}
                             className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
                               l === 'no-access'
-                                ? 'bg-storm-100 text-text-muted line-through'
+                                ? 'bg-storm-100 text-text-muted'
                                 : l === 'full-access'
                                   ? 'bg-forest-600/15 text-forest-600'
                                   : 'bg-accent-teal/10 text-accent-teal'
                             }`}
                             title={`${PERMISSION_LABELS[p]}: ${ACCESS_LABELS[l]}`}
                           >
-                            {ACCESS_LABELS[l]}
+                            <span className="font-semibold mr-1">{PERMISSION_LABELS[p]}:</span>
+                            <span className={l === 'no-access' ? 'line-through' : ''}>{ACCESS_LABELS[l]}</span>
                           </span>
                         );
                       })}

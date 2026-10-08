@@ -205,10 +205,6 @@ export function ActionPanel({
       {/* ---------------- Data sources ---------------- */}
       {id === 'sources' && (
         <div className="space-y-3">
-          <p className="text-sm text-text-secondary">
-            Local server first, per Q&amp;A #2 — patient data stays on AFP infrastructure. Cloud is
-            used only for aggregate external dashboards.
-          </p>
           <ul className="divide-y divide-storm-200 border border-storm-200 rounded-lg">
             {DATA_SOURCES.map((s) => (
               <li key={s.id} className="flex items-center gap-3 px-3 py-2.5 flex-wrap">

@@ -1,9 +1,67 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
+/* ------------------------------------------------------------------ */
+/*  Theme — migrated from tailwind.config.js                           */
+/* ------------------------------------------------------------------ */
+@theme {
+  /* AFP Medical Corps HSEU Color Palette */
+  --color-navy-900: #162A2C;
+  --color-navy-800: #2F4156;
+
+  --color-teal-600: #567CBD;
+  --color-teal-500: #4A6FA5;
+
+  --color-forest-600: #5E6C58;
+  --color-forest-500: #4D5A47;
+
+  --color-sky-200: #D6E0E2;
+  --color-sky-100: #E8EBED;
+
+  --color-cream-200: #F4EFE0;
+  --color-cream-100: #FEFCF6;
+
+  --color-storm-500: #680867;
+  --color-storm-200: #D6E0E2;
+  --color-storm-100: #F0F2F3;
+
+  /* Semantic aliases */
+  --color-primary: #162A2C;
+  --color-primary-dark: #2F4156;
+
+  --color-accent-teal: #567CBD;
+  --color-accent-green: #5E6C58;
+  --color-accent-sky: #D6E0E2;
+
+  --color-background: #FEFCF6;
+  --color-background-card: #F4EFE0;
+
+  --color-text-primary: #162A2C;
+  --color-text-secondary: #2F4156;
+  --color-text-muted: #6B7B8A;
+
+  --color-status-success: #2E7D32;
+  --color-status-warning: #F57F17;
+  --color-status-danger: #C62828;
+  --color-status-info: #567CBD;
+
+  /* Fonts */
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Spacing */
+  --spacing-18: 4.5rem;
+  --spacing-88: 22rem;
+
+  /* Shadows */
+  --shadow-card: 0 2px 8px rgba(22, 42, 44, 0.08);
+  --shadow-card-hover: 0 4px 16px rgba(22, 42, 44, 0.12);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Base layer                                                          */
+/* ------------------------------------------------------------------ */
 @layer base {
   * {
     @apply border-storm-200;
@@ -16,6 +74,9 @@
   }
 }
 
+/* ------------------------------------------------------------------ */
+/*  Components                                                          */
+/* ------------------------------------------------------------------ */
 @layer components {
   .btn-primary {
     @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg transition-colors hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
@@ -54,16 +115,16 @@
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
   }
   .badge-success {
-    @apply badge bg-green-100 text-green-800;
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800;
   }
   .badge-warning {
-    @apply badge bg-yellow-100 text-yellow-800;
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800;
   }
   .badge-danger {
-    @apply badge bg-red-100 text-red-800;
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800;
   }
   .badge-info {
-    @apply badge bg-sky-100 text-primary;
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-primary;
   }
   .sidebar-link {
     @apply flex items-center gap-3 px-3 py-2 text-sm font-medium text-text-secondary rounded-lg transition-colors hover:bg-primary/5 hover:text-primary;
@@ -72,7 +133,7 @@
     @apply bg-primary/10 text-primary font-semibold;
   }
   .kpi-card {
-    @apply card p-5;
+    @apply bg-background-card rounded-xl border border-storm-200 shadow-card transition-shadow hover:shadow-card-hover p-5;
   }
   .kpi-value {
     @apply text-3xl font-bold text-primary tabular-nums;
@@ -91,13 +152,16 @@
   }
 }
 
+/* ------------------------------------------------------------------ */
+/*  Utilities                                                           */
+/* ------------------------------------------------------------------ */
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: theme('colors.storm.200') transparent;
+    scrollbar-color: var(--color-storm-200) transparent;
   }
   .scrollbar-thin::-webkit-scrollbar {
     width: 6px;
@@ -107,7 +171,7 @@
     background: transparent;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background-color: theme('colors.storm.200');
+    background-color: var(--color-storm-200);
     border-radius: 3px;
   }
 }

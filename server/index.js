@@ -2,18 +2,10 @@ import express from "express";
 import multer from "multer";
 import { fileURLToPath } from "url";
 import path from "path";
-import { parseExcel } from "./src/parseExcel.js";
-
-// ES modules don't have __dirname, so derive it from import.meta.url
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { parseExcel } from "./parseExcel.js";
 
 const app = express();
 const PORT = 3000;
-
-// --- Static file serving ---
-// Serve the "public" directory so index.html is available at /
-app.use(express.static(path.join(__dirname, "public")));
 
 // --- Multer configuration ---
 // Memory storage: file bytes stay in RAM as a Buffer (no temp files on disk)
