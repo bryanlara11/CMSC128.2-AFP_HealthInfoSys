@@ -3,7 +3,6 @@ import { AuthProvider } from './auth';
 import { AnalysisExportPage } from '../pages/AnalysisExportPage';
 import { DataManagementPage } from '../pages/DataManagementPage';
 import { HomePage } from '../pages/HomePage';
-import { RoleSwitcher } from '../components/RoleSwitcher';
 
 let failed = 0;
 const check = (l: string, ok: boolean) => {
@@ -17,13 +16,11 @@ const wrap = (el: React.ReactNode) =>
 const ae = wrap(<AnalysisExportPage />);
 const dm = wrap(<DataManagementPage />);
 const home = wrap(<HomePage />);
-const rs = wrap(<RoleSwitcher />);
 
 console.log('=== renders without crashing under the default (analyst) role ===');
 check('AnalysisExportPage renders', ae.length > 500);
 check('DataManagementPage renders', dm.length > 500);
 check('HomePage renders', home.length > 500);
-check('RoleSwitcher renders', rs.includes('hseu-analyst') || rs.length > 0);
 
 console.log('\n=== Table 3 KPIs on Home ===');
 for (const m of ['Surveillance Category', 'Condition / Diagnosis', 'Active / New Cases (Week)', 'Percent Change (%)']) {

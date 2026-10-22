@@ -178,8 +178,8 @@ export function HomePage({ onNavigate }: { onNavigate?: (tab: 'data-management' 
             })}
           </div>
           <p className="text-[11px] text-text-muted pt-1">
-            Acting as <span className="font-semibold text-text-secondary">{role.label}</span>. Switch roles
-            in the header to see what each role may do.
+            Signed in as <span className="font-semibold text-text-secondary">{role.label}</span>.
+            Available modules and actions are determined by your role.
           </p>
         </section>
 

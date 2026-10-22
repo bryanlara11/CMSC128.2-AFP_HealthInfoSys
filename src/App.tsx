@@ -5,6 +5,7 @@ import { HomePage } from './pages/HomePage';
 import { DataManagementPage } from './pages/DataManagementPage';
 import { AnalysisExportPage } from './pages/AnalysisExportPage';
 import { AccountSettingsPage } from './pages/AccountSettingsPage';
+import { LoginPage } from './pages/LoginPage';
 import { AuthProvider, useAuth } from './data/auth';
 
 type ModuleTab = 'home' | 'data-management' | 'analysis-export' | 'account-settings';
@@ -12,9 +13,15 @@ type ModuleTab = 'home' | 'data-management' | 'analysis-export' | 'account-setti
 export default function App() {
   return (
     <AuthProvider>
-      <Shell />
+      <Root />
     </AuthProvider>
   );
+}
+
+/** Decides whether to show the login screen or the authenticated shell. */
+function Root() {
+  const { isAuthenticated } = useAuth();
+  return isAuthenticated ? <Shell /> : <LoginPage />;
 }
 
 function Shell() {
