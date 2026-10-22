@@ -3,7 +3,6 @@ import { AuthProvider, DEFAULT_ROLE_ID } from './auth';
 import { HomePage } from '../pages/HomePage';
 import { DataManagementPage } from '../pages/DataManagementPage';
 import { ActionPanel } from '../components/ActionPanel';
-import { RoleSwitcher } from '../components/RoleSwitcher';
 import { ROLES } from './dictionary';
 import { buildWeeklyReport, ALERT_RULES, DATA_SOURCES, WEEKLY_REPORT_META } from './sample';
 import type { QuickActionId } from '../components/ActionPanel';
@@ -76,8 +75,7 @@ check('no href="#" dead links', !home.includes('href="#"'));
 check('COVID-19 gone from home', !home.includes('COVID-19'));
 check('chart placeholder removed', !home.includes('Chart placeholder'));
 check('recharts svg rendered on home', home.includes('<svg'));
-check('role context line shown', home.includes('Acting as'));
-check('role switcher renders default role', wrap(<RoleSwitcher />).includes('I.T. Personnel'));
+check('role context line shown', home.includes('Signed in as'));
 
 console.log(`\n${failed === 0 ? 'ALL CHECKS PASSED' : failed + ' CHECKS FAILED'}`);
 process.exit(failed === 0 ? 0 : 1);

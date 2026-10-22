@@ -1,12 +1,13 @@
 import { ChevronDown, Shield, User, LogOut, Menu } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
-import { RoleSwitcher } from './RoleSwitcher';
+import { useAuth } from '../data/auth';
 
 interface HeaderProps {
   onMenuClick?: () => void;
 }
 
 export function Header({ onMenuClick }: HeaderProps) {
+  const { email, role, logout } = useAuth();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
 
@@ -50,7 +51,6 @@ export function Header({ onMenuClick }: HeaderProps) {
           </div>
           
           <div className="flex items-center gap-3 self-end md:self-auto flex-shrink-0">
-            <RoleSwitcher />
             
             <div className="relative" ref={profileMenuRef}>
               <button
@@ -60,14 +60,14 @@ export function Header({ onMenuClick }: HeaderProps) {
                 aria-haspopup="true"
               >
                 <User className="w-4 h-4" aria-hidden="true" />
-                <span className="hidden sm:inline">Juan Dela Cruz</span>
+                <span className="hidden sm:inline">{role.label}</span>
                 <ChevronDown className="w-4 h-4" aria-hidden="true" />
               </button>
               {showProfileMenu && (
                 <div className="absolute right-0 mt-2 w-56 bg-background-card border border-storm-200 rounded-lg shadow-card-hover py-1 z-50">
                   <div className="px-3 py-2 border-b border-storm-200">
-                    <p className="text-sm font-medium text-text-primary">Juan Dela Cruz</p>
-                    <p className="text-xs text-text-muted">HSEU Personnel</p>
+                    <p className="text-sm font-medium text-text-primary">{role.label}</p>
+                    <p className="text-xs text-text-muted">{email}</p>
                   </div>
                   <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-primary/5">
                     <User className="w-4 h-4" aria-hidden="true" />
@@ -78,7 +78,10 @@ export function Header({ onMenuClick }: HeaderProps) {
                     Settings
                   </button>
                   <hr className="my-1 border-storm-200" />
-                  <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-status-danger hover:bg-red-50">
+                  <button
+                    onClick={logout}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-status-danger hover:bg-red-50"
+                  >
                     <LogOut className="w-4 h-4" aria-hidden="true" />
                     Sign Out
                   </button>
