@@ -1,15 +1,17 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { X } from 'lucide-react';
 import { Header } from './Header';
 import { ModuleBar } from './ModuleBar';
 import { Sidebar } from './Sidebar';
+import { useAuth } from '../data/auth';
 
-export type ModuleTab = 'home' | 'data-management' | 'analysis-export' | 'account-settings';
+export type ModuleTab = 'home' | 'data-management' | 'analysis-export' | 'logs' | 'account-settings';
 
-const MOBILE_NAV: { id: ModuleTab; label: string }[] = [
+const BASE_MOBILE_NAV: { id: ModuleTab; label: string }[] = [
   { id: 'home', label: 'Home' },
   { id: 'data-management', label: 'Data Management' },
   { id: 'analysis-export', label: 'Analysis & Export' },
+  // 'logs' is inserted dynamically for admin users
   { id: 'account-settings', label: 'Account Settings' },
 ];
 
@@ -36,6 +38,17 @@ export function Layout({
   sidebarProps,
 }: LayoutProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const { level } = useAuth();
+
+  /* Build mobile nav: inject Logs for admin users. */
+  const mobileNav = useMemo(() => {
+    const isAdmin = level('audit') === 'full-access';
+    if (!isAdmin) return BASE_MOBILE_NAV;
+    const idx = BASE_MOBILE_NAV.findIndex(t => t.id === 'account-settings');
+    const result = [...BASE_MOBILE_NAV];
+    result.splice(idx, 0, { id: 'logs' as ModuleTab, label: 'Logs' });
+    return result;
+  }, [level]);
 
   return (
     <div className="min-h-screen flex flex-col bg-background font-sans">
@@ -94,7 +107,7 @@ export function Layout({
               </button>
             </div>
             <nav className="p-4 space-y-1" role="navigation" aria-label="Mobile">
-              {MOBILE_NAV.map((item) => (
+              {mobileNav.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => {

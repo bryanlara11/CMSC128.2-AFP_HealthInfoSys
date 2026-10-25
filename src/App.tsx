@@ -5,10 +5,11 @@ import { HomePage } from './pages/HomePage';
 import { DataManagementPage } from './pages/DataManagementPage';
 import { AnalysisExportPage } from './pages/AnalysisExportPage';
 import { AccountSettingsPage } from './pages/AccountSettingsPage';
+import { LogsPage } from './pages/LogsPage';
 import { LoginPage } from './pages/LoginPage';
 import { AuthProvider, useAuth } from './data/auth';
 
-type ModuleTab = 'home' | 'data-management' | 'analysis-export' | 'account-settings';
+type ModuleTab = 'home' | 'data-management' | 'analysis-export' | 'logs' | 'account-settings';
 
 export default function App() {
   return (
@@ -27,7 +28,7 @@ function Root() {
 function Shell() {
   const [activeTab, setActiveTab] = useState<ModuleTab>('home');
   const [tourOpen, setTourOpen] = useState(false);
-  const { can, canAccessIngestion } = useAuth();
+  const { can, canAccessIngestion, level } = useAuth();
 
   const startTour = useCallback(() => setTourOpen(true), []);
   const closeTour = useCallback(() => setTourOpen(false), []);
@@ -36,10 +37,13 @@ function Shell() {
   const surveillanceVisible = can('surveillance');
   /* Data Management stays visible to all roles; the upload action is gated inside it. */
   const ingestionVisible = canAccessIngestion();
+  /* Logs tab is admin-only: requires full-access on the 'audit' permission. */
+  const logsVisible = level('audit') === 'full-access';
 
   const tab = (t: ModuleTab) => {
     if (t === 'analysis-export' && !surveillanceVisible) return;
     if (t === 'data-management' && !ingestionVisible) return;
+    if (t === 'logs' && !logsVisible) return;
     setActiveTab(t);
   };
 
@@ -60,6 +64,7 @@ function Shell() {
         {activeTab === 'home' && <HomePage onNavigate={tab} />}
         {activeTab === 'data-management' && ingestionVisible && <DataManagementPage />}
         {activeTab === 'analysis-export' && surveillanceVisible && <AnalysisExportPage />}
+        {activeTab === 'logs' && logsVisible && <LogsPage />}
         {activeTab === 'account-settings' && <AccountSettingsPage />}
       </Layout>
 

@@ -20,6 +20,7 @@ import {
   type ReactNode,
 } from 'react';
 import { ROLES, type AccessLevel, type Permission, type RoleDef } from './dictionary';
+import { logAccess } from './auditLog';
 
 /* ------------------------------------------------------------------ */
 /*  Credential map — email → { password, roleId }                      */
@@ -109,6 +110,12 @@ export function AuthProvider({
   const [email, setEmail] = useState('');
   const [roleId, setRoleId] = useState(initialRoleId);
 
+  /* ---------- refs for logging inside timers ---------- */
+  const emailRef = useRef(email);
+  const roleIdRef = useRef(roleId);
+  useEffect(() => { emailRef.current = email; }, [email]);
+  useEffect(() => { roleIdRef.current = roleId; }, [roleId]);
+
   /* ---------- idle-timeout refs ---------- */
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -116,6 +123,8 @@ export function AuthProvider({
     if (!isAuthenticated) return;
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
+      const r = ROLES.find((r) => r.id === roleIdRef.current);
+      logAccess(emailRef.current, r?.label ?? roleIdRef.current, 'Session Expired');
       setIsAuthenticated(false);
       setEmail('');
       setRoleId(DEFAULT_ROLE_ID);
@@ -159,6 +168,8 @@ export function AuthProvider({
     const cred = CREDENTIALS[normalised];
     if (!cred) return 'Invalid email or password.';
     if (cred.password !== inputPassword) return 'Invalid email or password.';
+    const r = ROLES.find((r) => r.id === cred.roleId);
+    logAccess(normalised, r?.label ?? cred.roleId, 'Login');
     setEmail(normalised);
     setRoleId(cred.roleId);
     setIsAuthenticated(true);
@@ -166,6 +177,8 @@ export function AuthProvider({
   }, []);
 
   const logout = useCallback(() => {
+    const r = ROLES.find((r) => r.id === roleIdRef.current);
+    logAccess(emailRef.current, r?.label ?? roleIdRef.current, 'Logout');
     setIsAuthenticated(false);
     setEmail('');
     setRoleId(DEFAULT_ROLE_ID);

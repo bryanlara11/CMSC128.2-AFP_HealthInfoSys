@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import { X, ChevronLeft, ChevronRight, Check, HelpCircle, MousePointerClick } from 'lucide-react';
 
-export type TourTab = 'home' | 'data-management' | 'analysis-export' | 'account-settings';
+export type TourTab = 'home' | 'data-management' | 'analysis-export' | 'logs' | 'account-settings';
 
 export interface TourStep {
   target: string;
