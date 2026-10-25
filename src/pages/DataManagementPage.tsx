@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useAuth } from '../data/auth';
+import { logAudit } from '../data/auditLog';
 import { WorkbookTables } from '../components/WorkbookTables';
 import { uploadExcel, type ExcelUploadResult } from '../data/api';
 import { dataSheets } from '../data/workbook';
@@ -23,7 +24,7 @@ import {
 type Section = 'import' | 'history' | 'records';
 
 export function DataManagementPage() {
-  const { canUpload, role } = useAuth();
+  const { canUpload, role, email } = useAuth();
   const [activeSection, setActiveSection] = useState<Section>('import');
   const [dragActive, setDragActive] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -57,7 +58,8 @@ export function DataManagementPage() {
      records rather than faking a result from the filename. */
   const runErrorBatch = useCallback(() => {
     setBatch(validateRows(buildErrorBatch()));
-  }, []);
+    logAudit(email, role.label, 'HSEU', 'Validate', `Error batch — ${ERROR_BATCH_SIZE} malformed records validated`);
+  }, [email, role.label]);
 
   const accept = async (f: File) => {
     if (!canUpload()) return;
@@ -75,6 +77,7 @@ export function DataManagementPage() {
       if (!controller.signal.aborted) {
         setWorkbook(uploaded);
         setPhase('done');
+        logAudit(email, role.label, 'HSEU', 'Import', `${f.name} — ${uploaded.sheets?.reduce((n: number, s: { rows?: unknown[] }) => n + (s.rows?.length ?? 0), 0) ?? '?'} records ingested`);
         const entry: SavedImport = {
           id: crypto.randomUUID(), dateImported: new Date().toISOString(),
           importedBy: role.label, workbook: uploaded,
@@ -110,10 +113,12 @@ export function DataManagementPage() {
 
   const removeImport = (id: string) => {
     if (!canUpload()) return;
+    const target = imports.find((entry) => entry.id === id);
     const entries = imports.filter((entry) => entry.id !== id);
     try {
       writeImports(window.localStorage, entries);
       setSaved({ entries, error: null });
+      logAudit(email, role.label, 'HSEU', 'Delete', `Removed import: ${target?.workbook.filename ?? id}`);
       if (currentImportId === id) {
         setCurrentImportId(null);
         setWorkbook(null);
@@ -224,7 +229,7 @@ export function DataManagementPage() {
               Use the standardized seven-column Excel format for surveillance uploads.
               Your file is uploaded automatically when selected or dropped here.
             </p>
-            <button onClick={downloadExcelTemplate} className="btn-secondary w-full justify-center mt-4">
+            <button onClick={() => { downloadExcelTemplate(); logAudit(email, role.label, 'HSEU', 'Download Template', 'Standard 7-column surveillance template (.xlsx)'); }} className="btn-secondary w-full justify-center mt-4">
               <Download className="w-4 h-4" aria-hidden="true" />
               Download Template
             </button>

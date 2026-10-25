@@ -53,6 +53,7 @@ import { DATA_FIELDS, CASE_CLASSIFICATIONS } from '../data/dictionary';
 import { RECORDS, CONDITIONS_PRESENT } from '../data/records';
 import { useAuth } from '../data/auth';
 import { downloadCsv } from '../data/export';
+import { logAudit } from '../data/auditLog';
 
 type Classification = (typeof CASE_CLASSIFICATIONS)[number];
 
@@ -236,7 +237,7 @@ export function ExportModal({
 /* ------------------------------------------------------------------ */
 
 export function AnalysisExportPage() {
-  const { canAdministerSurveillance, role } = useAuth();
+  const { canAdministerSurveillance, role, email } = useAuth();
   const [showExport, setShowExport] = useState(false);
   const [diseaseFilter, setDiseaseFilter] = useState('All Conditions');
   const [showAllFields, setShowAllFields] = useState(false);
@@ -252,6 +253,10 @@ export function AnalysisExportPage() {
     if (format === 'xlsx') {
       downloadCsv('AFP_HSEU_Surveillance_Export.csv', visible, stripPii);
     }
+    logAudit(
+      email, role.label, 'HSEU', 'Export',
+      `${format === 'pdf' ? 'PDF report' : 'Excel export'} — ${visible.length} records${stripPii ? ', PII stripped' : ', identifiable'}`,
+    );
     setToast(
       `${format === 'pdf' ? 'PDF report' : 'Excel export'} generated for ${visible.length} records — ${
         stripPii ? 'PII stripped, DOH-compliant' : 'identifiable data included, audit logged'

@@ -14,6 +14,7 @@ import { buildWeeklyReport, WEEKLY_REPORT_META, ALERT_RULES, DATA_SOURCES } from
 import { downloadCsv } from '../data/export';
 import { RECORDS } from '../data/records';
 import { useAuth } from '../data/auth';
+import { logAudit } from '../data/auditLog';
 
 /** Declared here rather than in HomePage to keep the dependency one-way. */
 export type QuickActionId =
@@ -54,7 +55,7 @@ export function ActionPanel({
   onClose: () => void;
   onNavigate?: (tab: 'data-management' | 'analysis-export') => void;
 }) {
-  const { canUpload, role } = useAuth();
+  const { canUpload, role, email } = useAuth();
   const [rules, setRules] = useState(ALERT_RULES);
   const [done, setDone] = useState<string | null>(null);
 
@@ -186,7 +187,7 @@ export function ActionPanel({
 
           <div className="flex flex-wrap gap-3">
             <button
-              onClick={() => { downloadCsv(`AFP_HSEU_${WEEKLY_REPORT_META.epiWeek.replace(/\s+/g, '_')}.csv`, RECORDS, true); flash('Aggregate CSV generated with PII stripped.'); }}
+              onClick={() => { downloadCsv(`AFP_HSEU_${WEEKLY_REPORT_META.epiWeek.replace(/\s+/g, '_')}.csv`, RECORDS, true); logAudit(email, role.label, 'HSEU', 'Generate Report', `Weekly report ${WEEKLY_REPORT_META.epiWeek} — PII stripped, aggregate CSV`); flash('Aggregate CSV generated with PII stripped.'); }}
               className="btn-primary justify-center"
             >
               <Download className="w-4 h-4" aria-hidden="true" />
@@ -276,7 +277,7 @@ export function ActionPanel({
           </div>
           <div className="flex flex-wrap gap-3">
             <button
-              onClick={() => { downloadCsv('AFP_HSEU_Aggregate_Export.csv', RECORDS, true); flash('Anonymized export generated — 2 identifier columns removed.'); }}
+              onClick={() => { downloadCsv('AFP_HSEU_Aggregate_Export.csv', RECORDS, true); logAudit(email, role.label, 'HSEU', 'Export', `Anonymized export — ${RECORDS.length} records, 2 identifier columns removed`); flash('Anonymized export generated — 2 identifier columns removed.'); }}
               className="btn-primary justify-center"
             >
               <ShieldCheck className="w-4 h-4" aria-hidden="true" />

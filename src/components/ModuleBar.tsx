@@ -1,8 +1,9 @@
 import { Search } from 'lucide-react';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { TourTrigger } from './OnboardingTour';
+import { useAuth } from '../data/auth';
 
-type ModuleTab = 'home' | 'data-management' | 'analysis-export' | 'account-settings';
+type ModuleTab = 'home' | 'data-management' | 'analysis-export' | 'logs' | 'account-settings';
 
 interface ModuleBarProps {
   activeTab: ModuleTab;
@@ -10,10 +11,11 @@ interface ModuleBarProps {
   onStartTour: () => void;
 }
 
-const tabs: { id: ModuleTab; label: string; icon?: React.ReactNode }[] = [
+const BASE_TABS: { id: ModuleTab; label: string }[] = [
   { id: 'home', label: 'Home' },
   { id: 'data-management', label: 'DATA MANAGEMENT' },
   { id: 'analysis-export', label: 'ANALYSIS & EXPORT' },
+  // 'logs' is inserted dynamically for admin users
   { id: 'account-settings', label: 'ACCOUNT SETTINGS' },
 ];
 
@@ -21,6 +23,17 @@ export function ModuleBar({ activeTab, onTabChange, onStartTour }: ModuleBarProp
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
+  const { level } = useAuth();
+
+  /* Build tab list: inject Logs tab for admin users (full-access on audit). */
+  const tabs = useMemo(() => {
+    const isAdmin = level('audit') === 'full-access';
+    if (!isAdmin) return BASE_TABS;
+    const idx = BASE_TABS.findIndex(t => t.id === 'account-settings');
+    const result = [...BASE_TABS];
+    result.splice(idx, 0, { id: 'logs', label: 'LOGS' });
+    return result;
+  }, [level]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
