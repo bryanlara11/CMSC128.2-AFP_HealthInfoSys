@@ -1,216 +1,156 @@
-/**
- * Table 4 — Role-Based Access Control.
- *
- * Implements the 8-role x 5-permission matrix from [HI_CMSC] Overview.pdf as a
- * React context so modules and actions can be gated. The analyst role is the
- * default because the pilot is surveillance-led (Q&A #4).
- *
- * This is client-side gating for the prototype. Per Q&A #3 the real system must
- * enforce the same matrix server-side; nothing here is a security boundary.
- */
-
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+﻿import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import { ROLES, type AccessLevel, type Permission, type RoleDef } from './dictionary';
 import { logAccess } from './auditLog';
-
-/* ------------------------------------------------------------------ */
-/*  Credential map — email → { password, roleId }                      */
-/* ------------------------------------------------------------------ */
-
-interface Credential {
-  password: string;
-  roleId: string;
-}
-
-const CREDENTIALS: Record<string, Credential> = {
-  'admin_clerk_test@email.com':       { password: 'test123', roleId: 'admin-clerk' },
-  'medtech_test@email.com':           { password: 'test123', roleId: 'medtech' },
-  'radtech_test@email.com':           { password: 'test123', roleId: 'radtech' },
-  'physical_therapist_test@email.com': { password: 'test123', roleId: 'physical-therapist' },
-  'nurse_test@email.com':             { password: 'test123', roleId: 'nurse' },
-  'medical_officer_test@email.com':   { password: 'test123', roleId: 'medical-officer' },
-  'hseu_analyst_test@email.com':      { password: 'test123', roleId: 'hseu-analyst' },
-  'it_personnel_test@email.com':      { password: 'test123', roleId: 'it-personnel' },
-};
-
-/* ------------------------------------------------------------------ */
-/*  Public auth types                                                   */
-/* ------------------------------------------------------------------ */
+import type { UserProfile } from './profile';
+import { supabase, requireSupabase, supabaseConfigurationError, databaseError } from './supabase';
 
 interface AuthValue {
-  /** Whether the user is currently logged in. */
   isAuthenticated: boolean;
-  /** The email of the logged-in user (empty when logged out). */
+  isLoading: boolean;
+  authError: string | null;
+  userId: string;
   email: string;
   role: RoleDef;
-
-  /** Attempt login. Returns null on success or an error string on failure. */
-  login: (email: string, password: string) => string | null;
-  /** Sign out and return to the login screen. */
-  logout: () => void;
-  /** Read access to a permission area. */
-  can: (p: Permission) => boolean;
-  /** Write access (create/edit). */
-  canWrite: (p: Permission) => boolean;
-  /** Upload/ingestion rights, used by the Data Management module. */
+  profile: UserProfile;
+  login: (email: string, password: string) => Promise<string | null>;
+  logout: () => Promise<void>;
+  updateProfile: (profile: UserProfile) => Promise<void>;
+  can: (permission: Permission) => boolean;
+  canWrite: (permission: Permission) => boolean;
   canUpload: () => boolean;
-  /** Any read access to ingested data — grants visibility of the Data Management module. */
+  canDeleteImports: () => boolean;
   canAccessIngestion: () => boolean;
-  /** Configure / export / filter rights on the surveillance dashboard. */
   canAdministerSurveillance: () => boolean;
-  level: (p: Permission) => AccessLevel;
+  level: (permission: Permission) => AccessLevel;
 }
 
 const AuthContext = createContext<AuthValue | null>(null);
-
-const WRITE_LEVELS: AccessLevel[] = ['edit-view', 'create-edit-view', 'full-access'];
-const READ_LEVELS: AccessLevel[] = [
-  'view',
-  'view-status',
-  'edit-view',
-  'create-edit-view',
-  'full-access',
-  'file-upload',
-  'ingestion-errors',
-];
-
-/**
- * Demo default. Table 4 grants I.T. Personnel Create/Edit/View across every data
- * column plus full audit and surveillance access, so it is the only role that
- * can both ingest a workbook and export a report — which is what a walkthrough
- * needs. The matrix itself is unchanged; switch roles to see the others apply.
- */
-export const DEFAULT_ROLE_ID = 'it-personnel';
-
-/** Idle timeout duration in milliseconds (5 minutes). */
+const DENIED: RoleDef = { id: 'unassigned', label: 'No assigned role', grants: { demographics: 'no-access', clinicalLab: 'no-access', physicalExam: 'no-access', surveillance: 'no-access', audit: 'no-access' } };
+const EMPTY_PROFILE: UserProfile = { fullName: '', assignedUnit: '' };
+const READ: AccessLevel[] = ['view', 'view-status', 'edit-view', 'create-edit-view', 'full-access', 'file-upload', 'ingestion-errors'];
+const WRITE: AccessLevel[] = ['edit-view', 'create-edit-view', 'full-access'];
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
-/* ------------------------------------------------------------------ */
-/*  Provider                                                            */
-/* ------------------------------------------------------------------ */
+interface AuthenticatedUser {
+  id: string;
+  email: string;
+  profile: UserProfile;
+  role: RoleDef;
+}
 
-export function AuthProvider({
-  children,
-  initialRoleId = DEFAULT_ROLE_ID,
-}: {
-  children: ReactNode;
-  /** Overridable so a test or a restored session can pick the starting role. */
-  initialRoleId?: string;
-}) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [email, setEmail] = useState('');
-  const [roleId, setRoleId] = useState(initialRoleId);
+async function loadUser(session: Session): Promise<AuthenticatedUser> {
+  const client = requireSupabase();
+  const { data: profile, error } = await client.from('profiles').select('id,full_name,email,assigned_unit,role_id').eq('id', session.user.id).single();
+  if (error) {
+    if (error.code === 'PGRST116') throw new Error('Your account has no assigned profile. Ask your administrator to assign your role and unit in Supabase.');
+    throw databaseError(error.message, error.code);
+  }
+  const { data: role, error: roleError } = await client.from('roles').select('id,label,grants').eq('id', profile.role_id).single();
+  if (roleError) throw databaseError(roleError.message, roleError.code);
+  if (!ROLES.some(known => known.id === role.id)) throw new Error('Your account has an unsupported role. Contact your administrator.');
+  const allowedLevels = ['no-access', ...READ];
+  if (!role.grants || !['demographics', 'clinicalLab', 'physicalExam', 'surveillance', 'audit'].every(key => allowedLevels.includes(role.grants[key]))) {
+    throw new Error('Your role has invalid permissions. Contact your administrator.');
+  }
+  return { id: session.user.id, email: session.user.email ?? profile.email, profile: { fullName: profile.full_name, assignedUnit: profile.assigned_unit }, role: role as RoleDef };
+}
 
-  /* ---------- refs for logging inside timers ---------- */
-  const emailRef = useRef(email);
-  const roleIdRef = useRef(roleId);
-  useEffect(() => { emailRef.current = email; }, [email]);
-  useEffect(() => { roleIdRef.current = roleId; }, [roleId]);
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<AuthenticatedUser | null>(null);
+  const [isLoading, setLoading] = useState(!!supabase);
+  const [authError, setAuthError] = useState<string | null>(supabaseConfigurationError);
+  const revision = useRef(0);
 
-  /* ---------- idle-timeout refs ---------- */
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const synchronize = useCallback(async (session: Session | null) => {
+    const current = ++revision.current;
+    try {
+      const next = session ? await loadUser(session) : null;
+      if (current === revision.current) { setUser(next); setAuthError(null); }
+      return null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not load your account.';
+      if (current === revision.current) { setUser(null); setAuthError(message); }
+      return message;
+    } finally { if (current === revision.current) setLoading(false); }
+  }, []);
 
-  const resetTimer = useCallback(() => {
-    if (!isAuthenticated) return;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      const r = ROLES.find((r) => r.id === roleIdRef.current);
-      logAccess(emailRef.current, r?.label ?? roleIdRef.current, 'Session Expired');
-      setIsAuthenticated(false);
-      setEmail('');
-      setRoleId(DEFAULT_ROLE_ID);
-    }, IDLE_TIMEOUT_MS);
-  }, [isAuthenticated]);
-
-  /* Listen for user activity to reset the idle timer. */
   useEffect(() => {
-    if (!isAuthenticated) {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      return;
-    }
+    if (!supabase) return;
+    let active = true;
+    const timers = new Set<ReturnType<typeof setTimeout>>();
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      // Fetch the protected profile after the auth callback returns.
+      const timer = setTimeout(() => { timers.delete(timer); if (active) void synchronize(session); }, 0);
+      timers.add(timer);
+    });
+    return () => { active = false; timers.forEach(clearTimeout); listener.subscription.unsubscribe(); };
+  }, [synchronize]);
 
-    const EVENTS: (keyof WindowEventMap)[] = [
-      'mousemove',
-      'mousedown',
-      'keydown',
-      'scroll',
-      'touchstart',
-      'pointerdown',
-    ];
+  const login = useCallback(async (email: string, password: string) => {
+    try {
+      const { data, error } = await requireSupabase().auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
+      if (error) return error.message;
+      const failure = await synchronize(data.session);
+      if (!failure) {
+        try { await logAccess('Login'); }
+        catch (auditError) { setAuthError(`Signed in, but the access event could not be saved: ${auditError instanceof Error ? auditError.message : 'Please check the connection.'}`); }
+      }
+      return failure;
+    } catch (error) { return error instanceof Error ? error.message : 'Could not sign in. Check your connection.'; }
+  }, [synchronize]);
 
-    resetTimer(); // start the countdown on login
+  const performSignOut = useCallback(async (action: 'Logout' | 'Session Expired') => {
+    let auditFailure: string | null = null;
+    try {
+      if (user) {
+        try { await logAccess(action); }
+        catch (error) { auditFailure = error instanceof Error ? error.message : 'Could not save the access event.'; }
+      }
+      const { error } = await requireSupabase().auth.signOut({ scope: 'local' });
+      if (error) throw error;
+      await synchronize(null);
+      if (auditFailure) setAuthError(`Signed out, but the access event could not be saved: ${auditFailure}`);
+    } catch (error) { setAuthError(error instanceof Error ? error.message : 'Could not sign out. Check your connection and try again.'); }
+  }, [user, synchronize]);
+  const logout = useCallback(() => performSignOut('Logout'), [performSignOut]);
 
-    EVENTS.forEach((e) => window.addEventListener(e, resetTimer, { passive: true }));
-    return () => {
-      EVENTS.forEach((e) => window.removeEventListener(e, resetTimer));
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [isAuthenticated, resetTimer]);
+  useEffect(() => {
+    if (!user) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const reset = () => { clearTimeout(timer); timer = setTimeout(() => { void performSignOut('Session Expired'); }, IDLE_TIMEOUT_MS); };
+    const events = ['pointerdown', 'keydown', 'scroll', 'mousemove'] as const;
+    events.forEach(event => window.addEventListener(event, reset, { passive: true }));
+    reset();
+    return () => { clearTimeout(timer); events.forEach(event => window.removeEventListener(event, reset)); };
+  }, [user, performSignOut]);
 
-  /* ---------- derived role ---------- */
-  const role = useMemo(
-    () => ROLES.find((r) => r.id === roleId) ?? ROLES.find((r) => r.id === DEFAULT_ROLE_ID)!,
-    [roleId],
-  );
+  const updateProfile = useCallback(async (profile: UserProfile) => {
+    if (!profile.fullName.trim()) throw new Error('Enter your full name.');
+    if (profile.assignedUnit !== user?.profile.assignedUnit) throw new Error('Your assigned unit is managed by an administrator.');
+    const { error } = await requireSupabase().rpc('update_my_profile', { p_full_name: profile.fullName.trim() });
+    if (error) throw databaseError(error.message, error.code);
+    setUser(previous => previous ? { ...previous, profile: { ...previous.profile, fullName: profile.fullName.trim() } } : null);
+  }, [user?.profile.assignedUnit]);
 
-  /* ---------- login / logout ---------- */
-  const login = useCallback((inputEmail: string, inputPassword: string): string | null => {
-    const normalised = inputEmail.trim().toLowerCase();
-    const cred = CREDENTIALS[normalised];
-    if (!cred) return 'Invalid email or password.';
-    if (cred.password !== inputPassword) return 'Invalid email or password.';
-    const r = ROLES.find((r) => r.id === cred.roleId);
-    logAccess(normalised, r?.label ?? cred.roleId, 'Login');
-    setEmail(normalised);
-    setRoleId(cred.roleId);
-    setIsAuthenticated(true);
-    return null;
-  }, []);
-
-  const logout = useCallback(() => {
-    const r = ROLES.find((r) => r.id === roleIdRef.current);
-    logAccess(emailRef.current, r?.label ?? roleIdRef.current, 'Logout');
-    setIsAuthenticated(false);
-    setEmail('');
-    setRoleId(DEFAULT_ROLE_ID);
-  }, []);
-
-  /* ---------- context value ---------- */
   const value = useMemo<AuthValue>(() => {
-    const level = (p: Permission) => role.grants[p];
+    const role = user?.role ?? DENIED;
+    const level = (permission: Permission) => role.grants[permission];
     return {
-      isAuthenticated,
-      email,
-      role,
-
-      login,
-      logout,
-      level,
-      can: (p) => READ_LEVELS.includes(level(p)),
-      canWrite: (p) => WRITE_LEVELS.includes(level(p)),
-      canUpload: () => level('audit') === 'file-upload' || level('audit') === 'full-access',
-      /* Module visibility is broad: per Q&A #4a administrative staff "do data
-         organization", and the analyst needs ingestion status & errors. The
-         meaningful gate is the upload action, not the module. */
-      canAccessIngestion: () => level('demographics') !== 'no-access',
+      isAuthenticated: !!user, isLoading, authError, userId: user?.id ?? '', email: user?.email ?? '', role,
+      profile: user?.profile ?? EMPTY_PROFILE, login, logout, updateProfile, level,
+      can: permission => READ.includes(level(permission)), canWrite: permission => WRITE.includes(level(permission)),
+      canUpload: () => ['file-upload', 'full-access'].includes(level('audit')),
+      canDeleteImports: () => level('audit') === 'full-access',
+      canAccessIngestion: () => level('audit') !== 'no-access' || WRITE.includes(level('demographics')),
       canAdministerSurveillance: () => level('surveillance') === 'full-access',
     };
-  }, [role, isAuthenticated, email, login, logout]);
-
+  }, [user, isLoading, authError, login, logout, updateProfile]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthValue {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used inside <AuthProvider>');
-  return ctx;
+  const value = useContext(AuthContext);
+  if (!value) throw new Error('useAuth must be used inside AuthProvider');
+  return value;
 }

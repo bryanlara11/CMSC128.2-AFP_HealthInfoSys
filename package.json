@@ -9,22 +9,21 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "check:compliance": "vite build --ssr src/data/dictionary-check.ts --outDir dist-ssr --logLevel error && node dist-ssr/dictionary-check.js",
-    "check:gaps": "vite build --ssr src/data/gaps-check.ts --outDir dist-ssr --logLevel error && node dist-ssr/gaps-check.js",
-    "make:samples": "node scripts/make-samples.mjs",
-    "check:samples": "npm run make:samples && vite build --ssr src/data/samples-check.ts --outDir dist-ssr --logLevel error && node dist-ssr/samples-check.js",
-    "api": "node server/index.js"
+    "check:supabase": "node scripts/check-supabase.mjs",
+    "check:excel": "node --test scripts/check-browser-excel.mjs scripts/check-standardized-upload.mjs",
+    "check:connection": "node scripts/check-supabase-connection.mjs",
+    "test": "node --test scripts/check-browser-excel.mjs scripts/check-standardized-upload.mjs scripts/check-supabase.mjs scripts/check-analytics-ui.mjs"
   },
   "dependencies": {
-    "express": "^5.2.1",
+    "@supabase/supabase-js": "^2.118.0",
     "lucide-react": "^1.48.0",
-    "multer": "^2.4.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "recharts": "^3.10.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.11",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",

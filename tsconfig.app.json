@@ -22,12 +22,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"],
-  "exclude": [
-    "src/data/dictionary-check.ts",
-    "src/data/gaps-check.ts",
-    "src/data/render-check.tsx",
-    "src/data/actions-check.tsx",
-    "src/data/samples-check.ts"
-  ]
+  "include": ["src"]
 }

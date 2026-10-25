@@ -7,7 +7,7 @@ interface HeaderProps {
 }
 
 export function Header({ onMenuClick }: HeaderProps) {
-  const { email, role, logout } = useAuth();
+  const { email, role, logout, authError } = useAuth();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
 
@@ -27,7 +27,7 @@ export function Header({ onMenuClick }: HeaderProps) {
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-primary border-b border-navy-800">
+    <header className="bg-primary border-b border-navy-800">
       <div className="px-4 md:px-6 py-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3 md:gap-4">
@@ -78,6 +78,7 @@ export function Header({ onMenuClick }: HeaderProps) {
                     Settings
                   </button>
                   <hr className="my-1 border-storm-200" />
+                  {authError && <p role="alert" className="px-3 py-2 text-xs text-status-danger">{authError}</p>}
                   <button
                     onClick={logout}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-status-danger hover:bg-red-50"

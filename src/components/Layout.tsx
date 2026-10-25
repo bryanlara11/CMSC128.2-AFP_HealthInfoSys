@@ -2,7 +2,6 @@ import { useState, useMemo } from 'react';
 import { X } from 'lucide-react';
 import { Header } from './Header';
 import { ModuleBar } from './ModuleBar';
-import { Sidebar } from './Sidebar';
 import { useAuth } from '../data/auth';
 
 export type ModuleTab = 'home' | 'data-management' | 'analysis-export' | 'logs' | 'account-settings';
@@ -20,13 +19,6 @@ interface LayoutProps {
   activeTab: ModuleTab;
   onTabChange: (tab: ModuleTab) => void;
   onStartTour: () => void;
-  showSidebar?: boolean;
-  sidebarProps?: {
-    onApplyFilters: () => void;
-    onClearFilters: () => void;
-    onExport: () => void;
-    onSaveFilter: () => void;
-  };
 }
 
 export function Layout({
@@ -34,37 +26,29 @@ export function Layout({
   activeTab,
   onTabChange,
   onStartTour,
-  showSidebar = false,
-  sidebarProps,
 }: LayoutProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const { level } = useAuth();
+  const { level, can, canAccessIngestion } = useAuth();
 
   /* Build mobile nav: inject Logs for admin users. */
   const mobileNav = useMemo(() => {
-    const isAdmin = level('audit') === 'full-access';
-    if (!isAdmin) return BASE_MOBILE_NAV;
-    const idx = BASE_MOBILE_NAV.findIndex(t => t.id === 'account-settings');
-    const result = [...BASE_MOBILE_NAV];
+    const isAdmin = ['view', 'full-access'].includes(level('audit'));
+    const permitted = BASE_MOBILE_NAV.filter(tab => (tab.id !== 'analysis-export' || can('surveillance')) && (tab.id !== 'data-management' || canAccessIngestion()));
+    if (!isAdmin) return permitted;
+    const idx = permitted.findIndex(t => t.id === 'account-settings');
+    const result = [...permitted];
     result.splice(idx, 0, { id: 'logs' as ModuleTab, label: 'Logs' });
     return result;
-  }, [level]);
+  }, [level, can, canAccessIngestion]);
 
   return (
     <div className="min-h-screen flex flex-col bg-background font-sans">
-      <Header onMenuClick={() => setMobileNavOpen(true)} />
-
-      <ModuleBar activeTab={activeTab} onTabChange={onTabChange} onStartTour={onStartTour} />
+      <div className="sticky top-0 z-40">
+        <Header onMenuClick={() => setMobileNavOpen(true)} />
+        <ModuleBar activeTab={activeTab} onTabChange={onTabChange} onStartTour={onStartTour} />
+      </div>
 
       <div className="flex flex-1 min-h-0">
-        {showSidebar && (
-          <Sidebar
-            onApplyFilters={sidebarProps?.onApplyFilters ?? (() => undefined)}
-            onClearFilters={sidebarProps?.onClearFilters ?? (() => undefined)}
-            onExport={sidebarProps?.onExport ?? (() => undefined)}
-            onSaveFilter={sidebarProps?.onSaveFilter ?? (() => undefined)}
-          />
-        )}
 
         <main id="main-content" role="main" className="flex-1 min-w-0 p-6 lg:p-8">
           {children}

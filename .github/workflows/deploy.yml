@@ -3,8 +3,7 @@
 # Uses the official Pages artifact flow, so no long-lived secret is needed:
 # the workflow's own GITHUB_TOKEN is granted pages:write and id-token:write.
 #
-# The repo root holds the TypeScript app; CMSC128.2-AFP_HealtInfoSys/ on the
-# main branch is a separate scaffold and is not built here.
+# The repository root contains the Supabase-connected TypeScript application.
 
 name: Deploy to GitHub Pages
 
@@ -37,13 +36,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify against the source document
+      - name: Check workbooks and database permissions
         run: |
-          npm run check:compliance
-          npm run check:gaps
-          npm run check:samples
+          npm run typecheck
+          npm test
 
       - name: Build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
         run: npm run build
 
       - uses: actions/configure-pages@v5

@@ -17,21 +17,21 @@ export const TOUR_STEPS: TourStep[] = [
     tab: 'home',
     title: 'Navigate the modules',
     description:
-      'Use the module bar to move between DATA MANAGEMENT (import standardized spreadsheets) and ANALYSIS & EXPORT (charts, filters and record tables). Your access level determines which modules are visible.',
+      'Use DATA MANAGEMENT for workbook imports and individual records, and ANALYSIS & EXPORT for current charts and aggregate reports. Your access level determines which modules are visible.',
   },
   {
     target: 'kpi-cards',
     tab: 'home',
     title: 'KPI summary cards',
     description:
-      'Total Cases, Affected Units, Most Common Disease and Active Alerts give you an at-a-glance read of the current surveillance picture. Each card shows the trend against the previous reporting period.',
+      'These cards count uploaded records, reported diseases, confirmed cases and records with missing values in the current filtered view.',
   },
   {
     target: 'filter-panel',
     tab: 'analysis-export',
     title: 'Analytics filter panel',
     description:
-      'Narrow the analysis by date range, region, AFP command, disease, rank and case status. Filters apply across every chart and the records table below.',
+      'Filter uploaded records by reporting date, disease and province. I.T. Personnel can also filter assigned units. Filters apply to chart totals and exported summaries.',
     placement: 'right',
   },
   {
@@ -39,14 +39,14 @@ export const TOUR_STEPS: TourStep[] = [
     tab: 'data-management',
     title: 'Upload standardized Excel file',
     description:
-      'Drag and drop the official HSEU template here. The system validates every row against the data dictionary before insert, and flags missing fields, formatting errors and duplicates.',
+      'Upload the fourteen-column surveillance workbook. The database checks column names and order, flags missing values, and saves valid-column records for analysis and editing.',
   },
   {
     target: 'privacy-export',
     tab: 'analysis-export',
     title: 'Privacy and export actions',
     description:
-      'Export the current view for DOH or upper command. Identifiers are stripped automatically and aggregate summaries are the only format permitted for external reporting.',
+      'Roles with full surveillance access can download aggregate CSV or Excel summaries. Names and case IDs are excluded, and the export is recorded in the audit log.',
   },
 ];
 

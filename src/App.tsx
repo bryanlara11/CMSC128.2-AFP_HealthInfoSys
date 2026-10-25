@@ -21,24 +21,25 @@ export default function App() {
 
 /** Decides whether to show the login screen or the authenticated shell. */
 function Root() {
-  const { isAuthenticated } = useAuth();
-  return isAuthenticated ? <Shell /> : <LoginPage />;
+  const { isAuthenticated, isLoading, userId, profile, role } = useAuth();
+  if (isLoading) return <main className="min-h-screen flex items-center justify-center bg-background" role="status">Connecting to Supabase...</main>;
+  return isAuthenticated ? <Shell key={`${userId}:${profile.assignedUnit}:${role.id}`} /> : <LoginPage />;
 }
 
 function Shell() {
   const [activeTab, setActiveTab] = useState<ModuleTab>('home');
   const [tourOpen, setTourOpen] = useState(false);
-  const { can, canAccessIngestion, level } = useAuth();
+  const { can, canAccessIngestion, level, userId, profile, role, authError } = useAuth();
 
   const startTour = useCallback(() => setTourOpen(true), []);
   const closeTour = useCallback(() => setTourOpen(false), []);
 
   /* Table 4: the surveillance dashboard is view-only for most roles. */
   const surveillanceVisible = can('surveillance');
-  /* Data Management stays visible to all roles; the upload action is gated inside it. */
+  /* Data Management includes permitted import operations and demographic record editing. */
   const ingestionVisible = canAccessIngestion();
-  /* Logs tab is admin-only: requires full-access on the 'audit' permission. */
-  const logsVisible = level('audit') === 'full-access';
+  /* Medical Officers can view their unit's logs; I.T. can view all units. */
+  const logsVisible = ['view', 'full-access'].includes(level('audit'));
 
   const tab = (t: ModuleTab) => {
     if (t === 'analysis-export' && !surveillanceVisible) return;
@@ -53,16 +54,10 @@ function Shell() {
         activeTab={activeTab}
         onTabChange={tab}
         onStartTour={startTour}
-        showSidebar={activeTab === 'analysis-export'}
-        sidebarProps={{
-          onApplyFilters: () => undefined,
-          onClearFilters: () => undefined,
-          onExport: () => undefined,
-          onSaveFilter: () => undefined,
-        }}
       >
+        {authError && <p role="alert" className="card p-4 mb-4 text-status-danger">{authError}</p>}
         {activeTab === 'home' && <HomePage onNavigate={tab} />}
-        {activeTab === 'data-management' && ingestionVisible && <DataManagementPage />}
+        {activeTab === 'data-management' && ingestionVisible && <DataManagementPage key={`${userId}:${profile.assignedUnit}:${role.id}`} />}
         {activeTab === 'analysis-export' && surveillanceVisible && <AnalysisExportPage />}
         {activeTab === 'logs' && logsVisible && <LogsPage />}
         {activeTab === 'account-settings' && <AccountSettingsPage />}

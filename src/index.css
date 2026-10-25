@@ -6,45 +6,45 @@
 /*  Theme — migrated from tailwind.config.js                           */
 /* ------------------------------------------------------------------ */
 @theme {
-  /* AFP Medical Corps HSEU Color Palette */
-  --color-navy-900: #162A2C;
-  --color-navy-800: #2F4156;
+  /* Medical blue, cool gray backgrounds, white surfaces. */
+  --color-navy-900: #0A3D62;
+  --color-navy-800: #072D49;
 
-  --color-teal-600: #567CBD;
-  --color-teal-500: #4A6FA5;
+  --color-teal-600: #0A3D62;
+  --color-teal-500: #072D49;
 
-  --color-forest-600: #5E6C58;
-  --color-forest-500: #4D5A47;
+  --color-forest-600: #0A3D62;
+  --color-forest-500: #072D49;
 
   --color-sky-200: #D6E0E2;
   --color-sky-100: #E8EBED;
 
-  --color-cream-200: #F4EFE0;
-  --color-cream-100: #FEFCF6;
+  --color-cream-200: #FFFFFF;
+  --color-cream-100: #FFFFFF;
 
-  --color-storm-500: #680867;
+  --color-storm-500: #64748B;
   --color-storm-200: #D6E0E2;
   --color-storm-100: #F0F2F3;
 
   /* Semantic aliases */
-  --color-primary: #162A2C;
-  --color-primary-dark: #2F4156;
+  --color-primary: #0A3D62;
+  --color-primary-dark: #072D49;
 
-  --color-accent-teal: #567CBD;
-  --color-accent-green: #5E6C58;
+  --color-accent-teal: #0A3D62;
+  --color-accent-green: #0A3D62;
   --color-accent-sky: #D6E0E2;
 
-  --color-background: #FEFCF6;
-  --color-background-card: #F4EFE0;
+  --color-background: #F1F3F6;
+  --color-background-card: #FFFFFF;
 
-  --color-text-primary: #162A2C;
-  --color-text-secondary: #2F4156;
+  --color-text-primary: #182B45;
+  --color-text-secondary: #475569;
   --color-text-muted: #6B7B8A;
 
   --color-status-success: #2E7D32;
   --color-status-warning: #F57F17;
   --color-status-danger: #C62828;
-  --color-status-info: #567CBD;
+  --color-status-info: #0A3D62;
 
   /* Fonts */
   --font-sans: 'Inter', system-ui, sans-serif;
@@ -118,7 +118,7 @@
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800;
   }
   .badge-warning {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800;
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-white text-slate-700 border border-slate-300;
   }
   .badge-danger {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800;

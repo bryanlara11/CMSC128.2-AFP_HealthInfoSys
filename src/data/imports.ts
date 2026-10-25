@@ -1,32 +1,19 @@
-import { isUploadResult, type ExcelUploadResult } from './api';
-import { dataSheets, sheetTable } from './workbook';
-
-export const IMPORTS_STORAGE_KEY = 'afp-hseu.imports.v1';
+﻿import type { ExcelUploadResult } from './excelTypes';
+import { validateWorkbook, type WorkbookValidation } from './workbook';
+import type { UploaderProfile } from './profile';
 
 export interface SavedImport {
   id: string;
   dateImported: string;
   importedBy: string;
   workbook: ExcelUploadResult;
+  uploader?: UploaderProfile;
+  error?: string;
+  validation?: WorkbookValidation;
+  metadataOnly?: boolean;
 }
 
-export function recordCount(workbook: ExcelUploadResult): number {
-  return dataSheets(workbook).reduce((total, sheet) => total + sheetTable(sheet).rows.length, 0);
-}
-
-export function readImports(storage: Pick<Storage, 'getItem'>): SavedImport[] {
-  const raw = storage.getItem(IMPORTS_STORAGE_KEY);
-  if (raw === null) return [];
-  const entries: unknown = JSON.parse(raw);
-  if (!Array.isArray(entries) || !entries.every((entry) =>
-    entry && typeof entry.id === 'string' && typeof entry.dateImported === 'string' &&
-    Number.isFinite(Date.parse(entry.dateImported)) && typeof entry.importedBy === 'string' &&
-    isUploadResult(entry.workbook))) {
-    throw new Error('Invalid saved imports.');
-  }
-  return entries;
-}
-
-export function writeImports(storage: Pick<Storage, 'setItem'>, entries: SavedImport[]): void {
-  storage.setItem(IMPORTS_STORAGE_KEY, JSON.stringify(entries));
+export function importValidation(entry: SavedImport): WorkbookValidation {
+  const validation = entry.validation ?? validateWorkbook(entry.workbook);
+  return entry.error ? { ...validation, status: 'error', reasons: [entry.error], recordCount: 0 } : validation;
 }

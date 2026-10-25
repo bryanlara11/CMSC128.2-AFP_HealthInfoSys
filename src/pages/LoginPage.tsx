@@ -1,7 +1,7 @@
 /**
  * Login page — landing screen for all users.
  *
- * Validates credentials from the hardcoded CREDENTIALS map in auth.tsx.
+ * Authenticates against Supabase and loads the protected role and unit profile.
  * On success the AuthProvider sets isAuthenticated = true, which causes
  * App.tsx to render the Shell instead of this page.
  */
@@ -11,7 +11,7 @@ import { Shield, Eye, EyeOff, LogIn, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from '../data/auth';
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, authError } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -27,21 +27,19 @@ export function LoginPage() {
   }, []);
 
   const handleSubmit = useCallback(
-    (e: FormEvent) => {
+    async (e: FormEvent) => {
       e.preventDefault();
       setError(null);
       setLoading(true);
 
-      // Simulate a tiny network delay so the spinner is visible
-      setTimeout(() => {
-        const result = login(email, password);
+      try {
+        const result = await login(email, password);
         if (result) {
           setError(result);
           setShake(true);
           setTimeout(() => setShake(false), 500);
         }
-        setLoading(false);
-      }, 400);
+      } finally { setLoading(false); }
     },
     [email, password, login],
   );
@@ -131,7 +129,7 @@ export function LoginPage() {
               </div>
 
               {/* Error message */}
-              {error && (
+              {(error || authError) && (
                 <div
                   role="alert"
                   className={`flex items-center gap-2 text-sm text-status-danger bg-red-50 border border-red-200 rounded-lg px-3 py-2.5 ${
@@ -139,7 +137,7 @@ export function LoginPage() {
                   }`}
                 >
                   <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
-                  {error}
+                  {error || authError}
                 </div>
               )}
 
