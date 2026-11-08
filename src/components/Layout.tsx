@@ -1,19 +1,11 @@
-import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react';
-import { X, Home, Database, BarChart3, UserCog, ScrollText } from 'lucide-react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { X } from 'lucide-react';
 import { Header } from './Header';
 import { ModuleBar } from './ModuleBar';
 import { Sidebar } from './Sidebar';
-import { useAuth } from '../data/auth';
+import { useModuleTabs, type ModuleTab } from './useModuleTabs';
 
-export type ModuleTab = 'home' | 'data-management' | 'analysis-export' | 'logs' | 'account-settings';
-
-const BASE_MOBILE_NAV: { id: ModuleTab; label: string; icon: ReactNode }[] = [
-  { id: 'home', label: 'Home', icon: <Home className="w-4 h-4" aria-hidden="true" /> },
-  { id: 'data-management', label: 'Data management', icon: <Database className="w-4 h-4" aria-hidden="true" /> },
-  { id: 'analysis-export', label: 'Analysis & export', icon: <BarChart3 className="w-4 h-4" aria-hidden="true" /> },
-  // 'logs' is inserted dynamically for admin users
-  { id: 'account-settings', label: 'Account settings', icon: <UserCog className="w-4 h-4" aria-hidden="true" /> },
-];
+export type { ModuleTab };
 
 interface LayoutProps {
   children: ReactNode;
@@ -41,21 +33,8 @@ export function Layout({
 }: LayoutProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [entered, setEntered] = useState(false); // drives the slide-in transition
-  const { level } = useAuth();
-
-  /* Build mobile nav: inject Logs for admin users. */
-  const mobileNav = useMemo(() => {
-    const isAdmin = level('audit') === 'full-access';
-    if (!isAdmin) return BASE_MOBILE_NAV;
-    const idx = BASE_MOBILE_NAV.findIndex(t => t.id === 'account-settings');
-    const result = [...BASE_MOBILE_NAV];
-    result.splice(idx, 0, {
-      id: 'logs' as ModuleTab,
-      label: 'Logs',
-      icon: <ScrollText className="w-4 h-4" aria-hidden="true" />,
-    });
-    return result;
-  }, [level]);
+  /* Only the modules this role may see. */
+  const { tabs: mobileNav } = useModuleTabs();
 
   const drawerRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);

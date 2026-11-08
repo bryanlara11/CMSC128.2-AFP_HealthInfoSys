@@ -1,23 +1,12 @@
-import { Home, Database, BarChart3, UserCog, ScrollText } from 'lucide-react';
-import { useMemo, type ReactNode } from 'react';
 import { TourTrigger } from './OnboardingTour';
 import { GlobalSearch } from './GlobalSearch';
-import { useAuth } from '../data/auth';
-import type { ModuleTab } from './Layout';
+import { useModuleTabs, type ModuleTab } from './useModuleTabs';
 
 interface ModuleBarProps {
   activeTab: ModuleTab;
   onTabChange: (tab: ModuleTab) => void;
   onStartTour: () => void;
 }
-
-const BASE_TABS: { id: ModuleTab; label: string; icon: ReactNode }[] = [
-  { id: 'home', label: 'Home', icon: <Home className="w-4 h-4" aria-hidden="true" /> },
-  { id: 'data-management', label: 'Data management', icon: <Database className="w-4 h-4" aria-hidden="true" /> },
-  { id: 'analysis-export', label: 'Analysis & export', icon: <BarChart3 className="w-4 h-4" aria-hidden="true" /> },
-  // 'logs' is inserted for admin users (same rule as the mobile drawer in Layout)
-  { id: 'account-settings', label: 'Account settings', icon: <UserCog className="w-4 h-4" aria-hidden="true" /> },
-];
 
 const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary';
 
@@ -28,19 +17,7 @@ const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visibl
  * Below lg: a small pill with just the tour button and search (tabs live in the drawer).
  */
 export function ModuleBar({ activeTab, onTabChange, onStartTour }: ModuleBarProps) {
-  const { level } = useAuth();
-
-  const tabs = useMemo(() => {
-    if (level('audit') !== 'full-access') return BASE_TABS;
-    const idx = BASE_TABS.findIndex((t) => t.id === 'account-settings');
-    const result = [...BASE_TABS];
-    result.splice(idx, 0, {
-      id: 'logs',
-      label: 'Logs',
-      icon: <ScrollText className="w-4 h-4" aria-hidden="true" />,
-    });
-    return result;
-  }, [level]);
+  const { tabs } = useModuleTabs();
 
   return (
     <div className="sticky top-3 z-40 -mt-7 mb-2 mr-2 md:mr-3 lg:mr-4 ml-auto lg:ml-4 w-fit lg:w-auto">
