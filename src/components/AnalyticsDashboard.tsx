@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
-import { Download, RefreshCw } from 'lucide-react';
+import { Calendar, Download, RefreshCw } from 'lucide-react';
 import { useAuth } from '../data/auth';
 import { EMPTY_FILTERS, loadAnalytics, exportAnalytics, trendSeries, type AnalyticsFilters } from '../data/analytics';
 import { downloadSummary } from '../data/export';
@@ -8,6 +8,66 @@ import { useRemote } from '../data/useRemote';
 
 const COLORS = ['#0A3D62', '#4B839F', '#8C5CA6', '#B56826', '#B73D48', '#3C8278', '#64748B', '#91A6B5'];
 const tooltipStyle = { background: '#FFFFFF', border: '1px solid #D6E0E2', borderRadius: 8, fontSize: 12 };
+
+/* ---------- active-filter labels shown under the trend chart title ---------- */
+
+/** '2024-01-30' (from a date input) -> 'Jan 30, 2024'. Change this one function to change the format. */
+const formatDate = (iso: string, withYear = true) =>
+  new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(withYear ? { year: 'numeric' } : {}),
+    timeZone: 'UTC',
+  });
+
+/** "Jan 1 – Jan 30, 2024", "Dec 15, 2023 – Jan 30, 2024", "From Jan 1, 2024", "Up to Jan 30, 2024" or null. */
+function dateRangeLabel(f: AnalyticsFilters): string | null {
+  if (f.from && f.to) {
+    const sameYear = f.from.slice(0, 4) === f.to.slice(0, 4);
+    return `${formatDate(f.from, !sameYear)} – ${formatDate(f.to)}`;
+  }
+  if (f.from) return `From ${formatDate(f.from)}`;
+  if (f.to) return `Up to ${formatDate(f.to)}`;
+  return null;
+}
+
+/* ---------- export file name that follows the filters ---------- */
+
+const slug = (text: string) => text.trim().replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+/** e.g. AFP_Surveillance_Summary_Cholera_Metro-Manila_2024-01-01_to_2024-01-30.csv (only the filters that are set). */
+function exportFileName(f: AnalyticsFilters, format: 'csv' | 'xlsx'): string {
+  const parts = ['AFP_Surveillance_Summary'];
+  if (f.disease) parts.push(slug(f.disease));
+  if (f.province) parts.push(slug(f.province));
+  if (f.unit) parts.push(slug(f.unit));
+  if (f.from && f.to) parts.push(`${f.from}_to_${f.to}`);
+  else if (f.from) parts.push(`from_${f.from}`);
+  else if (f.to) parts.push(`until_${f.to}`);
+  return `${parts.filter(Boolean).join('_')}.${format}`;
+}
+
+/** Chart title on the left, active-filter pills on the right (wraps on narrow cards). */
+function ChartHeading({ id, title, range, chips }: { id: string; title: string; range: string | null; chips: string[] }) {
+  return (
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      <h2 id={id} className="font-semibold text-primary">{title}</h2>
+      {(range || chips.length > 0) && (
+        <div className="flex flex-wrap items-center justify-end gap-2" aria-label="Active filters">
+          {range && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 text-primary px-3 py-1 text-xs font-medium">
+              <Calendar className="w-3.5 h-3.5" aria-hidden="true" />
+              {range}
+            </span>
+          )}
+          {chips.map((chip) => (
+            <span key={chip} className="rounded-full border border-storm-200 text-text-secondary px-3 py-1 text-xs">{chip}</span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function AnalyticsDashboard({ allowExport = false }: { allowExport?: boolean }) {
   const { role, profile, canAdministerSurveillance } = useAuth();
@@ -25,14 +85,17 @@ export function AnalyticsDashboard({ allowExport = false }: { allowExport?: bool
     if (data.byProvince.length > 7) top.push({ name: 'OTHER PROVINCES', count: data.byProvince.slice(7).reduce((n, row) => n + row.count, 0) });
     return top;
   }, [data]);
+  const rangeLabel = dateRangeLabel(filters);
+  const filterChips = [filters.disease, filters.province, filters.unit].filter(Boolean);
   const change = (key: keyof AnalyticsFilters, value: string) => { setFilters(previous => ({ ...previous, [key]: value })); setExportMessage(null); setExportError(null); };
   const exportView = async (format: 'csv' | 'xlsx') => {
     if (!canAdministerSurveillance() || state.loading || exporting) return;
     setExporting(true); setExportMessage(null); setExportError(null);
     try {
       const rows = await exportAnalytics(filters, format);
-      downloadSummary(rows, format);
-      setExportMessage(`Downloaded ${rows.length} aggregate groups. The export was recorded in the audit log.`);
+      const fileName = exportFileName(filters, format);
+      downloadSummary(rows, format, fileName);
+      setExportMessage(`Downloaded ${rows.length} aggregate groups as ${fileName}. The export was recorded in the audit log.`);
     } catch (error) { setExportError(error instanceof Error ? error.message : 'Could not export this view.'); }
     finally { setExporting(false); }
   };
@@ -63,7 +126,7 @@ export function AnalyticsDashboard({ allowExport = false }: { allowExport?: bool
       <p className="text-sm text-text-secondary">Latest reporting date: <strong>{data.latestReportDate ?? 'No dated records'}</strong>. Latest reported week: {data.currentWeekCount} records; preceding week: {data.previousWeekCount}. {data.weeklyChange === null ? 'No preceding-week baseline for a percentage change.' : `Change: ${data.weeklyChange > 0 ? '+' : ''}${data.weeklyChange}%.`}</p>
       <p className="text-xs text-text-muted">Counts represent uploaded rows, not deduplicated patients. Week comparisons use the latest reporting date in the filtered data. Missing or invalid RP DATE values are included in all-time totals and excluded from dated charts and date-range filters ({data.undatedRecords} in the current view).</p>
       {data.totalRecords === 0 ? <section className="card p-8 text-center text-text-secondary">No uploaded records match this view. Upload a standardized workbook or clear the filters.</section> : <>
-        <section className="card p-5" aria-labelledby="trend-heading"><h2 id="trend-heading" className="font-semibold text-primary mb-4">Weekly disease trends</h2>
+        <section className="card p-5" aria-labelledby="trend-heading"><ChartHeading id="trend-heading" title="Weekly disease trends" range={rangeLabel} chips={filterChips} />
           {series.rows.length ? <div className="h-80"><ResponsiveContainer width="100%" height="100%"><LineChart data={series.rows} margin={{ left: 0, right: 20, top: 10, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="week" tick={{ fontSize: 11 }} /><YAxis allowDecimals={false} /><Tooltip contentStyle={tooltipStyle} /><Legend />
             {series.names.map((name, index) => <Line isAnimationActive={false} key={name} type="linear" dataKey={`series_${index}`} name={name} stroke={COLORS[index]} strokeWidth={2} dot={{ r: 2 }} />)}
@@ -71,8 +134,8 @@ export function AnalyticsDashboard({ allowExport = false }: { allowExport?: bool
           <p className="text-xs text-text-muted mt-2">Weeks start Monday. The chart shows up to five diseases with the most records; other diseases remain included in totals.</p>
         </section>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <section className="card p-5" aria-labelledby="disease-heading"><h2 id="disease-heading" className="font-semibold text-primary mb-4">Records by disease</h2><div className="h-80"><ResponsiveContainer width="100%" height="100%"><BarChart data={data.byDisease.slice(0, 10)} layout="vertical" margin={{ left: 15, right: 20 }}><CartesianGrid strokeDasharray="3 3" /><XAxis type="number" allowDecimals={false} /><YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 10 }} /><Tooltip contentStyle={tooltipStyle} /><Bar isAnimationActive={false} dataKey="count" name="Records" fill="#0A3D62" /></BarChart></ResponsiveContainer></div><p className="text-xs text-text-muted">Top ten diseases in the current view.</p></section>
-          <section className="card p-5" aria-labelledby="province-heading"><h2 id="province-heading" className="font-semibold text-primary mb-4">Records by province</h2><div className="h-64"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie isAnimationActive={false} data={provinces} dataKey="count" nameKey="name" innerRadius={50} outerRadius={90}>{provinces.map((row, index) => <Cell key={row.name} fill={COLORS[index]} />)}</Pie><Tooltip contentStyle={tooltipStyle} /></PieChart></ResponsiveContainer></div><ul className="space-y-1 text-sm">{provinces.map((row, index) => <li key={row.name} className="flex justify-between gap-3"><span><span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: COLORS[index] }} />{row.name}</span><span className="font-mono">{row.count.toLocaleString()}</span></li>)}</ul></section>
+          <section className="card p-5" aria-labelledby="disease-heading"><ChartHeading id="disease-heading" title="Records by disease" range={null} chips={filters.disease ? [filters.disease] : []} /><div className="h-80"><ResponsiveContainer width="100%" height="100%"><BarChart data={data.byDisease.slice(0, 10)} layout="vertical" margin={{ left: 15, right: 20 }}><CartesianGrid strokeDasharray="3 3" /><XAxis type="number" allowDecimals={false} /><YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 10 }} /><Tooltip contentStyle={tooltipStyle} /><Bar isAnimationActive={false} dataKey="count" name="Records" fill="#0A3D62" /></BarChart></ResponsiveContainer></div><p className="text-xs text-text-muted">Top ten diseases in the current view.</p></section>
+          <section className="card p-5" aria-labelledby="province-heading"><ChartHeading id="province-heading" title="Records by province" range={null} chips={filters.province ? [filters.province] : []} /><div className="h-64"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie isAnimationActive={false} data={provinces} dataKey="count" nameKey="name" innerRadius={50} outerRadius={90}>{provinces.map((row, index) => <Cell key={row.name} fill={COLORS[index]} />)}</Pie><Tooltip contentStyle={tooltipStyle} /></PieChart></ResponsiveContainer></div><ul className="space-y-1 text-sm">{provinces.map((row, index) => <li key={row.name} className="flex justify-between gap-3"><span><span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: COLORS[index] }} />{row.name}</span><span className="font-mono">{row.count.toLocaleString()}</span></li>)}</ul></section>
         </div>
         <section className="card p-5"><h2 className="font-semibold text-primary mb-3">Records by assigned unit</h2><ul className="divide-y divide-storm-200">{data.byUnit.map(row => <li key={row.name} className="flex justify-between gap-4 py-2 text-sm"><span>{row.name}</span><span className="font-mono">{row.count.toLocaleString()}</span></li>)}</ul></section>
       </>}

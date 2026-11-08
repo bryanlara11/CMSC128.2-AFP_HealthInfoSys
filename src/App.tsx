@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
-import { Layout } from './components/Layout';
+import { Layout, type ModuleTab } from './components/Layout';
+import { useModuleTabs } from './components/useModuleTabs';
 import { OnboardingTour, TOUR_STEPS } from './components/OnboardingTour';
 import { HomePage } from './pages/HomePage';
 import { DataManagementPage } from './pages/DataManagementPage';
@@ -8,8 +9,6 @@ import { AccountSettingsPage } from './pages/AccountSettingsPage';
 import { LogsPage } from './pages/LogsPage';
 import { LoginPage } from './pages/LoginPage';
 import { AuthProvider, useAuth } from './data/auth';
-
-type ModuleTab = 'home' | 'data-management' | 'analysis-export' | 'logs' | 'account-settings';
 
 export default function App() {
   return (
@@ -29,22 +28,15 @@ function Root() {
 function Shell() {
   const [activeTab, setActiveTab] = useState<ModuleTab>('home');
   const [tourOpen, setTourOpen] = useState(false);
-  const { can, canAccessIngestion, level, userId, profile, role, authError } = useAuth();
+  const { userId, profile, role, authError } = useAuth();
+  /* Which modules this role may see: the same list drives the tabs and this guard. */
+  const { allowed } = useModuleTabs();
 
   const startTour = useCallback(() => setTourOpen(true), []);
   const closeTour = useCallback(() => setTourOpen(false), []);
 
-  /* Table 4: the surveillance dashboard is view-only for most roles. */
-  const surveillanceVisible = can('surveillance');
-  /* Data Management includes permitted import operations and demographic record editing. */
-  const ingestionVisible = canAccessIngestion();
-  /* Medical Officers can view their unit's logs; I.T. can view all units. */
-  const logsVisible = ['view', 'full-access'].includes(level('audit'));
-
   const tab = (t: ModuleTab) => {
-    if (t === 'analysis-export' && !surveillanceVisible) return;
-    if (t === 'data-management' && !ingestionVisible) return;
-    if (t === 'logs' && !logsVisible) return;
+    if (!allowed.has(t)) return;
     setActiveTab(t);
   };
 
@@ -57,9 +49,9 @@ function Shell() {
       >
         {authError && <p role="alert" className="card p-4 mb-4 text-status-danger">{authError}</p>}
         {activeTab === 'home' && <HomePage onNavigate={tab} />}
-        {activeTab === 'data-management' && ingestionVisible && <DataManagementPage key={`${userId}:${profile.assignedUnit}:${role.id}`} />}
-        {activeTab === 'analysis-export' && surveillanceVisible && <AnalysisExportPage />}
-        {activeTab === 'logs' && logsVisible && <LogsPage />}
+        {activeTab === 'data-management' && allowed.has('data-management') && <DataManagementPage key={`${userId}:${profile.assignedUnit}:${role.id}`} />}
+        {activeTab === 'analysis-export' && allowed.has('analysis-export') && <AnalysisExportPage />}
+        {activeTab === 'logs' && allowed.has('logs') && <LogsPage />}
         {activeTab === 'account-settings' && <AccountSettingsPage />}
       </Layout>
 
