@@ -12,15 +12,16 @@ export function summaryCsv(rows: Record<string, string | number>[]): string {
   return [SUMMARY_HEADERS.map(cell).join(','), ...rows.map(row => SUMMARY_HEADERS.map(header => cell(row[header])).join(','))].join('\r\n');
 }
 
-export function downloadSummary(rows: Record<string, string | number>[], format: 'csv' | 'xlsx'): void {
+/** `fileName` is optional; without it the original default names are used. */
+export function downloadSummary(rows: Record<string, string | number>[], format: 'csv' | 'xlsx', fileName?: string): void {
   if (format === 'xlsx') {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows, { header: SUMMARY_HEADERS }), 'Surveillance Summary');
-    XLSX.writeFile(workbook, 'AFP_Surveillance_Summary.xlsx');
+    XLSX.writeFile(workbook, fileName ?? 'AFP_Surveillance_Summary.xlsx');
     return;
   }
   const url = URL.createObjectURL(new Blob(['\uFEFF' + summaryCsv(rows)], { type: 'text/csv;charset=utf-8;' }));
-  const link = document.createElement('a'); link.href = url; link.download = 'AFP_Surveillance_Summary.csv';
+  const link = document.createElement('a'); link.href = url; link.download = fileName ?? 'AFP_Surveillance_Summary.csv';
   document.body.appendChild(link); link.click(); link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
