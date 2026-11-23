@@ -197,50 +197,138 @@ function exportFileName(f: AnalyticsFilters, format: 'csv' | 'xlsx'): string {
 }
 
 /** e.g. AFP_Surveillance_Weekly-disease-trends_Cholera_2024-01-01_to_2024-01-30.png */
-const chartFileName = (chart: string, f: AnalyticsFilters) =>
-  `${['AFP_Surveillance', chart, ...filterNameParts(f)].join('_')}.png`;
+const chartFileName = (
+  chart: string,
+  f: AnalyticsFilters,
+  diseaseOptions: string[] = [],
+  provinceOptions: string[] = []
+) => {
+  const allDiseases =
+    f.disease.length === 0 ||
+    (diseaseOptions.length > 0 &&
+      diseaseOptions.every(name => f.disease.includes(name)));
+
+  const allProvinces =
+    f.province.length === 0 ||
+    (provinceOptions.length > 0 &&
+      provinceOptions.every(name => f.province.includes(name)));
+
+  // Keep filenames short and Windows-safe. List only up to 3 selected names;
+  // use counts for larger partial selections and "all-*" for complete selections.
+  const diseasePart = allDiseases
+    ? 'All-diseases'
+    : f.disease.length > 3
+      ? `${f.disease.length}-diseases`
+      : f.disease.map(slug).join('-');
+
+  const provincePart = allProvinces
+    ? 'All-provinces'
+    : f.province.length > 3
+      ? `${f.province.length}-provinces`
+      : f.province.map(slug).join('-');
+
+  const parts = [
+    'AFP_Surveillance',
+    slug(chart),
+    diseasePart,
+    provincePart,
+    ...(f.unit ? [slug(f.unit).slice(0, 24)] : []),
+    ...(f.from && f.to
+      ? [`${f.from}_to_${f.to}`]
+      : f.from
+        ? [`from_${f.from}`]
+        : f.to
+          ? [`until_${f.to}`]
+          : []),
+  ].filter(Boolean);
+
+  // Keep the basename comfortably below common Windows filename limits.
+  return `${parts.join('_').slice(0, 150).replace(/[_-]+$/g, '')}.png`;
+};
 
 /* ---------- download a chart as a PNG (title, filters and legend included) ---------- */
 
-interface ChartImage { title: string; subtitle: string; legend?: { name: string; color: string }[]; fileName: string }
+interface ChartImage { title: string; subtitle: string; legend?: { name: string; color: string }[]; note?: string; fileName: string }
 
-async function downloadChartPng(container: HTMLElement | null, { title, subtitle, legend = [], fileName }: ChartImage) {
-  // Recharts also draws every legend swatch as a tiny <svg class="recharts-surface">, so take the biggest one: the chart itself.
-  const svg = Array.from(container?.querySelectorAll('svg.recharts-surface') ?? [])
-    .sort((a, b) => b.getBoundingClientRect().width * b.getBoundingClientRect().height - a.getBoundingClientRect().width * a.getBoundingClientRect().height)[0];
+async function downloadChartPng(
+  container: HTMLElement | null,
+  { title, subtitle, legend = [], note, fileName }: ChartImage
+) {
+  const svg = Array.from(
+    container?.querySelectorAll('svg.recharts-surface') ?? []
+  ).sort(
+    (a, b) =>
+      b.getBoundingClientRect().width * b.getBoundingClientRect().height -
+      a.getBoundingClientRect().width * a.getBoundingClientRect().height
+  )[0];
+
   if (!svg) throw new Error('The chart is not ready yet.');
+
   const { width, height } = svg.getBoundingClientRect();
   if (width < 100 || height < 100) throw new Error('The chart is not ready yet.');
 
-  // Recharts draws the chart as SVG. The title, filters and legend are HTML, so they are redrawn below.
   const clone = svg.cloneNode(true) as SVGSVGElement;
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   clone.setAttribute('width', String(width));
   clone.setAttribute('height', String(height));
   clone.setAttribute('font-family', 'Arial, Helvetica, sans-serif');
-  const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml;charset=utf-8' }));
+
+  const svgUrl = URL.createObjectURL(
+    new Blob([new XMLSerializer().serializeToString(clone)], {
+      type: 'image/svg+xml;charset=utf-8',
+    })
+  );
 
   try {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
       const img = new Image();
       img.onload = () => resolve(img);
       img.onerror = () => reject(new Error('Could not render the chart image.'));
-      img.src = url;
+      img.src = svgUrl;
     });
 
     const font = 'Arial, Helvetica, sans-serif';
-    const scale = 2, pad = 24, innerW = Math.max(width, 480);
-    const headerH = subtitle ? 64 : 44;
+    const scale = 2;
+    const pad = 24;
+    const innerW = Math.max(width, 480);
+    const measure = document.createElement('canvas').getContext('2d');
+    if (!measure) throw new Error('Could not prepare the chart legend.');
 
-    // Lay the legend out in rows first, so the canvas can be sized to fit it.
-    const measure = document.createElement('canvas').getContext('2d')!;
+    // Wrap subtitle text so many selected diseases/provinces remain readable.
     measure.font = `13px ${font}`;
-    const items = legend.map(item => ({ ...item, w: 14 + measure.measureText(item.name).width + 22 }));
+    const subtitleLines: string[] = [];
+    if (subtitle) {
+      const words = subtitle.split(/\s+/);
+      let line = '';
+      for (const word of words) {
+        const candidate = line ? `${line} ${word}` : word;
+        if (line && measure.measureText(candidate).width > innerW) {
+          subtitleLines.push(line);
+          line = word;
+        } else {
+          line = candidate;
+        }
+      }
+      if (line) subtitleLines.push(line);
+    }
+    const headerH = subtitleLines.length ? 40 + subtitleLines.length * 18 : 44;
+    const noteHeight = note ? 34 : 0;
+
+    // Lay the legend out in rows before sizing the canvas.
+    measure.font = `13px ${font}`;
+    const items = legend.map(item => ({
+      ...item,
+      w: 14 + measure.measureText(item.name).width + 22,
+    }));
     const rows: (typeof items)[] = [];
     let current: typeof items = [];
     let used = 0;
     for (const item of items) {
-      if (used + item.w > innerW && current.length) { rows.push(current); current = []; used = 0; }
+      if (used + item.w > innerW && current.length) {
+        rows.push(current);
+        current = [];
+        used = 0;
+      }
       current.push(item);
       used += item.w;
     }
@@ -248,11 +336,13 @@ async function downloadChartPng(container: HTMLElement | null, { title, subtitle
     const legendH = rows.length ? rows.length * 22 + 12 : 0;
 
     const totalW = innerW + pad * 2;
-    const totalH = pad + headerH + height + legendH + pad;
+    const totalH = pad + headerH + height + noteHeight + legendH + pad;
     const canvas = document.createElement('canvas');
-    canvas.width = totalW * scale;
-    canvas.height = totalH * scale;
-    const ctx = canvas.getContext('2d')!;
+    canvas.width = Math.ceil(totalW * scale);
+    canvas.height = Math.ceil(totalH * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not create the chart image.');
+
     ctx.scale(scale, scale);
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, totalW, totalH);
@@ -261,36 +351,50 @@ async function downloadChartPng(container: HTMLElement | null, { title, subtitle
     ctx.fillStyle = '#0A3D62';
     ctx.font = `bold 20px ${font}`;
     ctx.fillText(title, pad, pad, innerW);
-    if (subtitle) {
-      ctx.fillStyle = '#64748B';
-      ctx.font = `13px ${font}`;
-      ctx.fillText(subtitle, pad, pad + 28, innerW);
-    }
 
-    ctx.drawImage(image, pad, pad + headerH, width, height);
+    ctx.fillStyle = '#64748B';
+    ctx.font = `13px ${font}`;
+    subtitleLines.forEach((line, index) => {
+      ctx.fillText(line, pad, pad + 28 + index * 18, innerW);
+    });
+
+    const chartY = pad + headerH;
+    ctx.drawImage(image, pad, chartY, width, height);
+
+    if (note) {
+      ctx.fillStyle = '#64748B';
+      ctx.font = `12px ${font}`;
+      ctx.fillText(note, pad, chartY + height + 10, innerW);
+    }
 
     ctx.font = `13px ${font}`;
     rows.forEach((row, rowIndex) => {
       let x = pad;
-      const y = pad + headerH + height + 12 + rowIndex * 22;
+      const legendY = chartY + height + noteHeight + 12 + rowIndex * 22;
       for (const item of row) {
         ctx.fillStyle = item.color;
-        ctx.fillRect(x, y + 2, 10, 10);
+        ctx.fillRect(x, legendY + 2, 10, 10);
         ctx.fillStyle = '#334155';
-        ctx.fillText(item.name, x + 14, y);
+        ctx.fillText(item.name, x + 14, legendY);
         x += item.w;
       }
     });
 
-    const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+    const blob = await new Promise<Blob | null>(resolve =>
+      canvas.toBlob(resolve, 'image/png')
+    );
     if (!blob) throw new Error('Could not create the image file.');
+
+    const pngUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
+    link.href = pngUrl;
     link.download = fileName;
-    document.body.appendChild(link); link.click(); link.remove();
-    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(pngUrl), 1000);
   } finally {
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(svgUrl);
   }
 }
 
@@ -324,6 +428,203 @@ function ChartHeading({ id, title, range, chips, onDownload }: { id: string; tit
   );
 }
 
+async function downloadCombinedCharts(
+  charts: {
+    ref: RefObject<HTMLDivElement | null>;
+    title: string;
+    legend?: { name: string; color: string }[];
+    note?: string;
+  }[],
+  fileName: string,
+  reportDetails: string[]
+) {
+  const renderedCharts = await Promise.all(
+    charts.map(async ({ ref, title, legend = [], note }) => {
+      const svg = Array.from(
+        ref.current?.querySelectorAll('svg.recharts-surface') ?? []
+      ).sort(
+        (a, b) =>
+          b.getBoundingClientRect().width * b.getBoundingClientRect().height -
+          a.getBoundingClientRect().width * a.getBoundingClientRect().height
+      )[0];
+
+      if (!svg) return null;
+      const { width, height } = svg.getBoundingClientRect();
+      if (width < 100 || height < 100) return null;
+
+      const clone = svg.cloneNode(true) as SVGSVGElement;
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      clone.setAttribute('width', String(width));
+      clone.setAttribute('height', String(height));
+      clone.setAttribute('font-family', 'Arial, Helvetica, sans-serif');
+      const svgUrl = URL.createObjectURL(
+        new Blob([new XMLSerializer().serializeToString(clone)], {
+          type: 'image/svg+xml;charset=utf-8',
+        })
+      );
+
+      try {
+        const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error(`Could not render ${title}.`));
+          img.src = svgUrl;
+        });
+        return { title, image, width, height, legend, note };
+      } finally {
+        URL.revokeObjectURL(svgUrl);
+      }
+    })
+  );
+
+  const validCharts = renderedCharts.filter(
+    (chart): chart is NonNullable<typeof chart> => chart !== null
+  );
+  if (validCharts.length === 0) {
+    throw new Error('No charts are available to download.');
+  }
+
+  const scale = 2;
+  const padding = 32;
+  const chartWidth = 1200;
+  const titleHeight = 45;
+  const metadataLineHeight = 24;
+  const metadataHeight = 35 + reportDetails.length * metadataLineHeight;
+  const gap = 40;
+  const legendFont = '14px Arial';
+  const legendRowHeight = 24;
+  const legendTopGap = 10;
+
+  // Calculate wrapped legend rows for each chart before sizing the canvas.
+  const legendLayouts = validCharts.map(chart => {
+    const items = chart.legend ?? [];
+    const measureCanvas = document.createElement('canvas');
+    const measureCtx = measureCanvas.getContext('2d');
+
+    if (!measureCtx || items.length === 0) {
+      return { items: [], rows: [] as { item: { name: string; color: string }; x: number }[], height: 0 };
+    }
+
+    measureCtx.font = legendFont;
+    const rows: { item: { name: string; color: string }; x: number }[][] = [];
+    let currentRow: { item: { name: string; color: string }; x: number }[] = [];
+    let x = 0;
+
+    for (const item of items) {
+      const itemWidth = 18 + measureCtx.measureText(item.name).width + 24;
+
+      if (x > 0 && x + itemWidth > chartWidth) {
+        rows.push(currentRow);
+        currentRow = [];
+        x = 0;
+      }
+
+      currentRow.push({ item, x });
+      x += itemWidth;
+    }
+
+    if (currentRow.length) rows.push(currentRow);
+
+    return {
+      items,
+      rows,
+      height: rows.length ? legendTopGap + rows.length * legendRowHeight : 0,
+    };
+  });
+
+  const chartHeights = validCharts.map(
+    chart => (chart.height / chart.width) * chartWidth
+  );
+
+  const totalHeight =
+    padding * 2 +
+    metadataHeight +
+    validCharts.reduce((total, chart, index) => {
+      const noteHeight = chart.note ? 30 : 0;
+      return total + titleHeight + chartHeights[index] + noteHeight + legendLayouts[index].height;
+    }, 0) +
+    gap * (validCharts.length - 1);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil((chartWidth + padding * 2) * scale);
+  canvas.height = Math.ceil(totalHeight * scale);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not create the combined image.');
+
+  ctx.scale(scale, scale);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, chartWidth + padding * 2, totalHeight);
+  ctx.textBaseline = 'top';
+
+  let y = padding;
+  ctx.fillStyle = '#0A3D62';
+  ctx.font = 'bold 26px Arial';
+  ctx.fillText('AFP Surveillance Analytics Report', padding, y);
+  y += 40;
+
+  ctx.fillStyle = '#475569';
+  ctx.font = '14px Arial';
+  for (const detail of reportDetails) {
+    ctx.fillText(detail, padding, y, chartWidth);
+    y += metadataLineHeight;
+  }
+  y += 15;
+
+  for (const [index, chart] of validCharts.entries()) {
+    ctx.fillStyle = '#0A3D62';
+    ctx.font = 'bold 22px Arial';
+    ctx.fillText(chart.title, padding, y);
+    y += titleHeight;
+
+    ctx.drawImage(chart.image, padding, y, chartWidth, chartHeights[index]);
+    y += chartHeights[index];
+
+    if (chart.note) {
+      ctx.fillStyle = '#64748B';
+      ctx.font = '13px Arial';
+      ctx.textBaseline = 'top';
+      ctx.fillText(chart.note, padding, y + 8, chartWidth);
+      y += 30;
+    }
+
+    const legendLayout = legendLayouts[index];
+    if (legendLayout.rows.length > 0) {
+      ctx.font = legendFont;
+      ctx.textBaseline = 'middle';
+      y += legendTopGap;
+
+      legendLayout.rows.forEach((row, rowIndex) => {
+        for (const entry of row) {
+          const itemY = y + rowIndex * legendRowHeight;
+          ctx.fillStyle = entry.item.color;
+          ctx.fillRect(padding + entry.x, itemY + 5, 12, 12);
+          ctx.fillStyle = '#334155';
+          ctx.fillText(entry.item.name, padding + entry.x + 18, itemY + 11);
+        }
+      });
+
+      y += legendLayout.rows.length * legendRowHeight;
+      ctx.textBaseline = 'top';
+    }
+
+    y += gap;
+  }
+
+  const blob = await new Promise<Blob | null>(resolve =>
+    canvas.toBlob(resolve, 'image/png')
+  );
+  if (!blob) throw new Error('Could not create the PNG file.');
+
+  const pngUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = pngUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(pngUrl), 1000);
+}
+
 export function AnalyticsDashboard({ allowExport = false }: { allowExport?: boolean }) {
   const { role, profile, canAdministerSurveillance } = useAuth();
   const [filters, setFilters] = useState<AnalyticsFilters>(EMPTY_FILTERS);
@@ -337,76 +638,127 @@ export function AnalyticsDashboard({ allowExport = false }: { allowExport?: bool
   const series = useMemo(() => data ? trendSeries(data) : { names: [], rows: [] }, [data]);
   const provinces = useMemo(() => {
     if (!data) return [];
-    const top = data.byProvince.slice(0, 7);
-    if (data.byProvince.length > 7) top.push({ name: 'OTHER PROVINCES', count: data.byProvince.slice(7).reduce((n, row) => n + row.count, 0) });
+    const top = data.byProvince.slice(0, 6);
+    if (data.byProvince.length > 6) {
+      top.push({
+        name: 'OTHER PROVINCES',
+        count: data.byProvince.slice(6).reduce((n, row) => n + row.count, 0),
+      });
+    }
     return top;
   }, [data]);
   const trendRef = useRef<HTMLDivElement>(null);
   const diseaseRef = useRef<HTMLDivElement>(null);
   const provinceRef = useRef<HTMLDivElement>(null);
   const [chartError, setChartError] = useState<string | null>(null);
-  const saveChart = (ref: RefObject<HTMLDivElement | null>, chart: string, title: string, subset: AnalyticsFilters, legend?: { name: string; color: string }[]) => {
-    setChartError(null);
-    const subtitle = [
-  dateRangeLabel(subset),
-  ...subset.disease,
-  ...subset.province,
-  subset.unit
-].filter(Boolean).join(' · ');
-    return downloadChartPng(ref.current, {
-  title,
-  subtitle,
-  legend,
-  fileName: chartFileName(chart, subset),
-}).catch(error => {
-  setChartError(
-    error instanceof Error
-      ? error.message
-      : 'Could not download this chart.'
-  );
-  throw error;
-});
+
+  // Empty selections mean "all"; explicitly selecting every available option
+  // should be treated the same way in chart subtitles and report metadata.
+  const isAllSelected = (selected: string[], options: string[]) =>
+    selected.length === 0 ||
+    (options.length > 0 && options.every(option => selected.includes(option)));
+
+  const diseaseSelectionLabel = (selected: string[]) => {
+    const options = data?.options.diseases ?? [];
+    if (isAllSelected(selected, options)) return 'All diseases';
+    return selected.length > 10
+      ? `${selected.length} diseases selected`
+      : selected.join(', ');
   };
-  const downloadAllCharts = async () => {
+
+  const provinceSelectionLabel = (selected: string[]) => {
+    const options = data?.options.provinces ?? [];
+    if (isAllSelected(selected, options)) return 'All provinces';
+    return selected.length > 10
+      ? `${selected.length} provinces selected`
+      : selected.join(', ');
+  };
+  
+  const saveChart = async (
+  ref: RefObject<HTMLDivElement | null>,
+  fileKey: string,
+  title: string,
+  chartFilters: AnalyticsFilters,
+  legend: { name: string; color: string }[] = []
+) => {
+  setChartError(null);
+
+  try {
+    const provinceSummary = provinceSelectionLabel(chartFilters.province);
+    const diseaseSummary = diseaseSelectionLabel(chartFilters.disease);
+
+    const isProvinceChart = fileKey === 'Records-by-province';
+    const subtitle = [
+      dateRangeLabel(chartFilters) ?? 'All reporting dates',
+      ...(isProvinceChart ? [diseaseSummary] : []),
+      provinceSummary,
+      chartFilters.unit ? `Unit: ${chartFilters.unit}` : null,
+    ].filter(Boolean).join(' | ');
+
+    await downloadChartPng(ref.current, {
+      title,
+      subtitle,
+      legend,
+      note: isProvinceChart
+        ? 'Top 6 provinces by record count are shown. All remaining provinces are grouped as Other Provinces.'
+        : undefined,
+      fileName: chartFileName(
+        fileKey,
+        chartFilters,
+        data?.options.diseases ?? [],
+        data?.options.provinces ?? []
+      ),
+    });
+  } catch (error) {
+    setChartError(
+      error instanceof Error
+        ? error.message
+        : 'Could not download this chart.'
+    );
+  }
+};
+const downloadAllCharts = async () => {
   if (downloadingAllCharts || !data) return;
 
   setDownloadingAllCharts(true);
   setChartError(null);
 
   try {
-    // 1. Weekly Disease Trends
-    if (series.rows.length > 0) {
-      await saveChart(
-        trendRef,
-        'Weekly-disease-trends',
-        'Weekly disease trends',
-        filters,
-        series.names.map((name, index) => ({
-          name,
-          color: COLORS[index % COLORS.length],
-        }))
-      );
-    }
-
-    // 2. Records by Disease
-    await saveChart(
-      diseaseRef,
-      'Records-by-disease',
-      'Records by disease',
-      filters
-    );
-
-    // 3. Records by Province
-    await saveChart(
-      provinceRef,
-      'Records-by-province',
-      'Records by province',
-      filters,
-      provinces.map((row, index) => ({
-        name: `${row.name} (${row.count.toLocaleString()})`,
-        color: COLORS[index % COLORS.length],
-      }))
-    );
+    await downloadCombinedCharts(
+  [
+    ...(series.rows.length > 0
+      ? [{
+          ref: trendRef,
+          title: 'Weekly Disease Trends',
+          legend: series.names.map((name, index) => ({
+            name,
+            color: COLORS[index % COLORS.length],
+          })),
+        }]
+      : []),
+    { ref: diseaseRef, title: 'Records by Disease' },
+    {
+  ref: provinceRef,
+  title: 'Records by Province',
+  note: 'Top 6 provinces by record count are shown. All remaining provinces are grouped as Other Provinces.',
+  legend: provinces.map((row, index) => ({
+    name: `${row.name} (${row.count.toLocaleString()})`,
+    color: COLORS[index % COLORS.length],
+  })),
+},
+  ],
+  'AFP_Surveillance_All_Charts.png',
+  [
+    `Reporting date range: ${dateRangeLabel(filters) ?? 'All reporting dates'}`,
+    `Selected diseases: ${diseaseSelectionLabel(filters.disease)}`,
+    `Selected provinces: ${provinceSelectionLabel(filters.province)}`,
+    `Assigned unit: ${
+      role.id === 'it-personnel'
+        ? filters.unit || 'All units'
+        : profile.assignedUnit || 'Not assigned'
+    }`,
+  ]
+);
   } catch (error) {
     setChartError(
       error instanceof Error
@@ -417,6 +769,7 @@ export function AnalyticsDashboard({ allowExport = false }: { allowExport?: bool
     setDownloadingAllCharts(false);
   }
 };
+
   const rangeLabel = dateRangeLabel(filters);
   const filterChips = [...filters.disease,...filters.province,filters.unit].filter(Boolean);
 const change = <K extends keyof AnalyticsFilters>(
@@ -495,7 +848,7 @@ const change = <K extends keyof AnalyticsFilters>(
 </p>
         </section>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <section className="card p-5" aria-labelledby="disease-heading"><ChartHeading id="disease-heading" title="Records by disease" range={null} chips={filters.disease} onDownload={() => saveChart(diseaseRef, 'Records-by-disease', 'Records by disease', { ...EMPTY_FILTERS, disease: filters.disease })} /><div
+          <section className="card p-5" aria-labelledby="disease-heading"><ChartHeading id="disease-heading" title="Records by disease" range={null} chips={filters.disease} onDownload={() => saveChart(diseaseRef, 'Records-by-disease', 'Records by disease', filters)} /><div
   ref={diseaseRef}
   style={{
     height: Math.max(
@@ -504,7 +857,16 @@ const change = <K extends keyof AnalyticsFilters>(
     ),
   }}
 ><ResponsiveContainer width="100%" height="100%"><BarChart data={data.byDisease.filter(row => row.name !== '(missing)')} layout="vertical" margin={{ left: 15, right: 20 }}><CartesianGrid strokeDasharray="3 3" /><XAxis type="number" allowDecimals={false} /><YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 10 }} /><Tooltip contentStyle={tooltipStyle} /><Bar isAnimationActive={false} dataKey="count" name="Records" fill="#0A3D62" /></BarChart></ResponsiveContainer></div><p className="text-xs text-text-muted"> All diseases matching the current filters are displayed. </p></section>
-          <section className="card p-5" aria-labelledby="province-heading"><ChartHeading id="province-heading" title="Records by province" range={null} chips={filters.province} onDownload={() => saveChart(provinceRef, 'Records-by-province', 'Records by province', { ...EMPTY_FILTERS, province: filters.province }, provinces.map((row, index) => ({ name: `${row.name} (${row.count.toLocaleString()})`, color: COLORS[index % COLORS.length] })))} /><div ref={provinceRef} className="h-64"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie isAnimationActive={false} data={provinces} dataKey="count" nameKey="name" innerRadius={50} outerRadius={90}>{provinces.map((row, index) => <Cell key={row.name} fill={COLORS[index]} />)}</Pie><Tooltip contentStyle={tooltipStyle} /></PieChart></ResponsiveContainer></div><ul className="space-y-1 text-sm">{provinces.map((row, index) => <li key={row.name} className="flex justify-between gap-3"><span><span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: COLORS[index] }} />{row.name}</span><span className="font-mono">{row.count.toLocaleString()}</span></li>)}</ul></section>
+          <section className="card p-5" aria-labelledby="province-heading"><ChartHeading id="province-heading" title="Records by province" range={null} chips={filters.province} onDownload={() => saveChart(
+  provinceRef,
+  'Records-by-province',
+  'Records by province',
+  filters,
+  provinces.map((row, index) => ({
+    name: `${row.name} (${row.count.toLocaleString()})`,
+    color: COLORS[index % COLORS.length],
+  }))
+)} /><div ref={provinceRef} style={{ height: 320 }}><ResponsiveContainer width="100%" height="100%"><PieChart><Pie isAnimationActive={false} data={provinces} dataKey="count" nameKey="name" innerRadius={50} outerRadius={90}>{provinces.map((row, index) => <Cell key={row.name} fill={COLORS[index % COLORS.length]} />)}</Pie><Tooltip contentStyle={tooltipStyle} /></PieChart></ResponsiveContainer></div><p className="text-xs text-text-muted mt-2 mb-3">Top 6 provinces by record count are shown. All remaining provinces are grouped as Other Provinces.</p><ul className="space-y-1 text-sm">{provinces.map((row, index) => <li key={row.name} className="flex justify-between gap-3"><span><span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: COLORS[index % COLORS.length] }} />{row.name}</span><span className="font-mono">{row.count.toLocaleString()}</span></li>)}</ul></section>
         </div>
         <section className="card p-5"><h2 className="font-semibold text-primary mb-3">Records by assigned unit</h2><ul className="divide-y divide-storm-200">{data.byUnit.map(row => <li key={row.name} className="flex justify-between gap-4 py-2 text-sm"><span>{row.name}</span><span className="font-mono">{row.count.toLocaleString()}</span></li>)}</ul></section>
       </>}
