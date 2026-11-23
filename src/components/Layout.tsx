@@ -118,7 +118,7 @@ export function Layout({
         Skip to main content
       </a>
 
-      <Header onMenuClick={() => setMobileNavOpen(true)} mobileNavOpen={mobileNavOpen} />
+      <Header onMenuClick={() => setMobileNavOpen(true)} mobileNavOpen={mobileNavOpen} onNavigate={onTabChange}/>
 
       <ModuleBar activeTab={activeTab} onTabChange={onTabChange} onStartTour={onStartTour} />
 

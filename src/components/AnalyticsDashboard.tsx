@@ -8,6 +8,137 @@ import { useRemote } from '../data/useRemote';
 
 const COLORS = ['#0A3D62', '#4B839F', '#8C5CA6', '#B56826', '#B73D48', '#3C8278', '#64748B', '#91A6B5'];
 const tooltipStyle = { background: '#FFFFFF', border: '1px solid #D6E0E2', borderRadius: 8, fontSize: 12 };
+interface MultiSelectFilterProps {
+  label: string;
+  options: string[];
+  selected: string[];
+  onChange: (values: string[]) => void;
+}
+
+function MultiSelectFilter({
+  label,
+  options,
+  selected,
+  onChange,
+}: MultiSelectFilterProps) {
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+
+  const filteredOptions = options.filter(option =>
+    option.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const toggleOption = (option: string) => {
+    const next = selected.includes(option)
+      ? selected.filter(value => value !== option)
+      : [...selected, option];
+
+    onChange(next);
+  };
+
+  const toggleAll = () => {
+    const allVisibleSelected =
+      filteredOptions.length > 0 &&
+      filteredOptions.every(option => selected.includes(option));
+
+    if (allVisibleSelected) {
+      onChange(selected.filter(value => !filteredOptions.includes(value)));
+    } else {
+      onChange([
+        ...new Set([...selected, ...filteredOptions])
+      ]);
+    }
+  };
+
+  return (
+    <div className="relative min-w-0">
+      <label className="text-sm text-text-secondary">
+        {label}
+      </label>
+
+      <button
+        type="button"
+        className="input-base mt-1 flex items-center justify-between text-left"
+        aria-expanded={open}
+        aria-haspopup="true"
+        onClick={() => setOpen(value => !value)}
+      >
+        <span className="truncate">
+          {selected.length === 0
+            ? `All ${label.toLowerCase()}`
+            : `${selected.length} selected`}
+        </span>
+
+        <span aria-hidden="true">⌄</span>
+      </button>
+
+      {open && (
+        <div className="absolute z-30 mt-1 w-full rounded-lg border border-storm-200 bg-white shadow-lg p-3">
+          <input
+            type="search"
+            className="input-base mb-2"
+            placeholder={`Search ${label.toLowerCase()}...`}
+            aria-label={`Search ${label.toLowerCase()}`}
+            value={search}
+            onChange={event => setSearch(event.target.value)}
+          />
+
+          <div className="flex items-center justify-between mb-2">
+            <button
+              type="button"
+              className="text-xs font-medium text-primary"
+              onClick={toggleAll}
+            >
+              Select all
+            </button>
+
+            <button
+              type="button"
+              className="text-xs text-text-secondary"
+              onClick={() => onChange([])}
+            >
+              Clear
+            </button>
+          </div>
+
+          <div className="max-h-52 overflow-y-auto space-y-2">
+            {filteredOptions.map(option => (
+              <label
+                key={option}
+                className="flex items-center gap-2 text-sm cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.includes(option)}
+                  onChange={() => toggleOption(option)}
+                  className="accent-primary"
+                />
+
+                <span>{option}</span>
+              </label>
+            ))}
+
+            {filteredOptions.length === 0 && (
+              <p className="text-sm text-text-muted py-2">
+                No matching options found.
+              </p>
+            )}
+          </div>
+
+          <div className="border-t border-storm-200 mt-3 pt-2 flex justify-end">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => setOpen(false)}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ---------- active-filter labels shown under the trend chart title ---------- */
 
@@ -38,12 +169,25 @@ const slug = (text: string) => text.trim().replace(/[^A-Za-z0-9]+/g, '-').replac
 /** The filters that are set, as file-name pieces: Cholera, Metro-Manila, 2024-01-01_to_2024-01-30 ... */
 function filterNameParts(f: AnalyticsFilters): string[] {
   const parts: string[] = [];
-  if (f.disease) parts.push(slug(f.disease));
-  if (f.province) parts.push(slug(f.province));
+
+  if (f.disease.length) {
+    parts.push(...f.disease.map(slug));
+  }
+
+  if (f.province.length) {
+    parts.push(...f.province.map(slug));
+  }
+
   if (f.unit) parts.push(slug(f.unit));
-  if (f.from && f.to) parts.push(`${f.from}_to_${f.to}`);
-  else if (f.from) parts.push(`from_${f.from}`);
-  else if (f.to) parts.push(`until_${f.to}`);
+
+  if (f.from && f.to) {
+    parts.push(`${f.from}_to_${f.to}`);
+  } else if (f.from) {
+    parts.push(`from_${f.from}`);
+  } else if (f.to) {
+    parts.push(`until_${f.to}`);
+  }
+
   return parts.filter(Boolean);
 }
 
@@ -184,6 +328,7 @@ export function AnalyticsDashboard({ allowExport = false }: { allowExport?: bool
   const { role, profile, canAdministerSurveillance } = useAuth();
   const [filters, setFilters] = useState<AnalyticsFilters>(EMPTY_FILTERS);
   const load = useCallback(() => loadAnalytics(filters), [filters]);
+  const [downloadingAllCharts, setDownloadingAllCharts] = useState(false);
   const state = useRemote(load);
   const [exporting, setExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
@@ -202,14 +347,90 @@ export function AnalyticsDashboard({ allowExport = false }: { allowExport?: bool
   const [chartError, setChartError] = useState<string | null>(null);
   const saveChart = (ref: RefObject<HTMLDivElement | null>, chart: string, title: string, subset: AnalyticsFilters, legend?: { name: string; color: string }[]) => {
     setChartError(null);
-    const subtitle = [dateRangeLabel(subset), subset.disease, subset.province, subset.unit].filter(Boolean).join(' · ');
-    downloadChartPng(ref.current, { title, subtitle, legend, fileName: chartFileName(chart, subset) })
-      .catch(error => setChartError(error instanceof Error ? error.message : 'Could not download this chart.'));
+    const subtitle = [
+  dateRangeLabel(subset),
+  ...subset.disease,
+  ...subset.province,
+  subset.unit
+].filter(Boolean).join(' · ');
+    return downloadChartPng(ref.current, {
+  title,
+  subtitle,
+  legend,
+  fileName: chartFileName(chart, subset),
+}).catch(error => {
+  setChartError(
+    error instanceof Error
+      ? error.message
+      : 'Could not download this chart.'
+  );
+  throw error;
+});
   };
+  const downloadAllCharts = async () => {
+  if (downloadingAllCharts || !data) return;
+
+  setDownloadingAllCharts(true);
+  setChartError(null);
+
+  try {
+    // 1. Weekly Disease Trends
+    if (series.rows.length > 0) {
+      await saveChart(
+        trendRef,
+        'Weekly-disease-trends',
+        'Weekly disease trends',
+        filters,
+        series.names.map((name, index) => ({
+          name,
+          color: COLORS[index % COLORS.length],
+        }))
+      );
+    }
+
+    // 2. Records by Disease
+    await saveChart(
+      diseaseRef,
+      'Records-by-disease',
+      'Records by disease',
+      filters
+    );
+
+    // 3. Records by Province
+    await saveChart(
+      provinceRef,
+      'Records-by-province',
+      'Records by province',
+      filters,
+      provinces.map((row, index) => ({
+        name: `${row.name} (${row.count.toLocaleString()})`,
+        color: COLORS[index % COLORS.length],
+      }))
+    );
+  } catch (error) {
+    setChartError(
+      error instanceof Error
+        ? error.message
+        : 'Could not download all charts.'
+    );
+  } finally {
+    setDownloadingAllCharts(false);
+  }
+};
   const rangeLabel = dateRangeLabel(filters);
-  const filterChips = [filters.disease, filters.province, filters.unit].filter(Boolean);
-  const change = (key: keyof AnalyticsFilters, value: string) => { setFilters(previous => ({ ...previous, [key]: value })); setExportMessage(null); setExportError(null); };
-  const exportView = async (format: 'csv' | 'xlsx') => {
+  const filterChips = [...filters.disease,...filters.province,filters.unit].filter(Boolean);
+const change = <K extends keyof AnalyticsFilters>(
+  key: K,
+  value: AnalyticsFilters[K]
+) => {
+  setFilters(previous => ({
+    ...previous,
+    [key]: value
+  }));
+
+  setExportMessage(null);
+  setExportError(null);
+};  const exportView = async (format: 'csv' | 'xlsx') => {
     if (!canAdministerSurveillance() || state.loading || exporting) return;
     setExporting(true); setExportMessage(null); setExportError(null);
     try {
@@ -229,8 +450,8 @@ export function AnalyticsDashboard({ allowExport = false }: { allowExport?: bool
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
         <label className="text-sm text-text-secondary">Reported from<input aria-label="Reported from" type="date" className="input-base mt-1" value={filters.from} onChange={e => change('from', e.target.value)} /></label>
         <label className="text-sm text-text-secondary">Reported through<input aria-label="Reported through" type="date" className="input-base mt-1" value={filters.to} onChange={e => change('to', e.target.value)} /></label>
-        <label className="text-sm text-text-secondary">Disease<select aria-label="Disease" className="input-base mt-1" value={filters.disease} onChange={e => change('disease', e.target.value)}><option value="">All diseases</option>{data?.options.diseases.map(name => <option key={name}>{name}</option>)}</select></label>
-        <label className="text-sm text-text-secondary">Province<select aria-label="Province" className="input-base mt-1" value={filters.province} onChange={e => change('province', e.target.value)}><option value="">All provinces</option>{data?.options.provinces.map(name => <option key={name}>{name}</option>)}</select></label>
+        <MultiSelectFilter label="Disease" options={data?.options.diseases ?? []} selected={filters.disease} onChange={values => change('disease', values)}/>
+        <MultiSelectFilter label="Province" options={data?.options.provinces ?? []} selected={filters.province} onChange={values => change('province', values)} />
         {role.id === 'it-personnel' && <label className="text-sm text-text-secondary">Assigned unit<select aria-label="Assigned unit" className="input-base mt-1" value={filters.unit} onChange={e => change('unit', e.target.value)}><option value="">All units</option>{data?.options.units.map(name => <option key={name}>{name}</option>)}</select></label>}
       </div>
       <button type="button" className="btn-ghost" onClick={() => setFilters({ ...EMPTY_FILTERS })}>Clear analytics filters</button>
@@ -245,19 +466,45 @@ export function AnalyticsDashboard({ allowExport = false }: { allowExport?: bool
           ['Confirmed cases', data.confirmedCases], ['Records with missing values', data.missingValueRecords],
         ].map(([label, count]) => <article key={label} className="kpi-card"><p className="kpi-label">{label}</p><p className="kpi-value" data-testid={label === 'Uploaded records' ? 'record-total' : undefined}>{Number(count).toLocaleString()}</p></article>)}
       </section>
+      <div className="flex justify-end">
+  <button
+    type="button"
+    className="btn-primary"
+    onClick={() => void downloadAllCharts()}
+    disabled={downloadingAllCharts || state.loading}
+  >
+    <Download className="w-4 h-4" aria-hidden="true" />
+    {downloadingAllCharts
+      ? 'Downloading charts...'
+      : 'Download All Charts (PNG)'}
+  </button>
+</div>
       <p className="text-sm text-text-secondary">Latest reporting date: <strong>{data.latestReportDate ?? 'No dated records'}</strong>. Latest reported week: {data.currentWeekCount} records; preceding week: {data.previousWeekCount}. {data.weeklyChange === null ? 'No preceding-week baseline for a percentage change.' : `Change: ${data.weeklyChange > 0 ? '+' : ''}${data.weeklyChange}%.`}</p>
       <p className="text-xs text-text-muted">Counts represent uploaded rows, not deduplicated patients. Week comparisons use the latest reporting date in the filtered data. Missing or invalid RP DATE values are included in all-time totals and excluded from dated charts and date-range filters ({data.undatedRecords} in the current view).</p>
       {data.totalRecords === 0 ? <section className="card p-8 text-center text-text-secondary">No uploaded records match this view. Upload a standardized workbook or clear the filters.</section> : <>
-        <section className="card p-5" aria-labelledby="trend-heading"><ChartHeading id="trend-heading" title="Weekly disease trends" range={rangeLabel} chips={filterChips} onDownload={series.rows.length ? () => saveChart(trendRef, 'Weekly-disease-trends', 'Weekly disease trends', filters, series.names.map((name, index) => ({ name, color: COLORS[index] }))) : undefined} />
-          {series.rows.length ? <div ref={trendRef} className="h-80"><ResponsiveContainer width="100%" height="100%"><LineChart data={series.rows} margin={{ left: 0, right: 20, top: 10, bottom: 5 }}>
+        <section className="card p-5" aria-labelledby="trend-heading"><ChartHeading id="trend-heading" title="Weekly disease trends" range={rangeLabel} chips={filterChips} onDownload={series.rows.length ? () => saveChart(trendRef, 'Weekly-disease-trends', 'Weekly disease trends', filters, series.names.map((name, index) => ({ name, color: COLORS[index % COLORS.length] }))) : undefined} />
+          {series.rows.length ? <div
+  ref={trendRef}
+  style={{ height: Math.max(320, series.names.length * 45) }}
+><ResponsiveContainer width="100%" height="100%"><LineChart data={series.rows} margin={{ left: 0, right: 20, top: 10, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="week" tick={{ fontSize: 11 }} /><YAxis allowDecimals={false} /><Tooltip contentStyle={tooltipStyle} /><Legend />
-            {series.names.map((name, index) => <Line isAnimationActive={false} key={name} type="linear" dataKey={`series_${index}`} name={name} stroke={COLORS[index]} strokeWidth={2} dot={{ r: 2 }} />)}
+            {series.names.map((name, index) => <Line isAnimationActive={false} key={name} type="linear" dataKey={`series_${index}`} name={name} stroke={COLORS[index % COLORS.length]} strokeWidth={2} dot={{ r: 2 }} />)}
           </LineChart></ResponsiveContainer></div> : <p className="text-sm text-text-muted">No valid reporting dates are available for a trend chart.</p>}
-          <p className="text-xs text-text-muted mt-2">Weeks start Monday. The chart shows up to five diseases with the most records; other diseases remain included in totals.</p>
+          <p className="text-xs text-text-muted mt-2">
+  Weeks start Monday. All diseases matching the current filters are displayed.
+</p>
         </section>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <section className="card p-5" aria-labelledby="disease-heading"><ChartHeading id="disease-heading" title="Records by disease" range={null} chips={filters.disease ? [filters.disease] : []} onDownload={() => saveChart(diseaseRef, 'Records-by-disease', 'Records by disease', { ...EMPTY_FILTERS, disease: filters.disease })} /><div ref={diseaseRef} className="h-80"><ResponsiveContainer width="100%" height="100%"><BarChart data={data.byDisease.slice(0, 10)} layout="vertical" margin={{ left: 15, right: 20 }}><CartesianGrid strokeDasharray="3 3" /><XAxis type="number" allowDecimals={false} /><YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 10 }} /><Tooltip contentStyle={tooltipStyle} /><Bar isAnimationActive={false} dataKey="count" name="Records" fill="#0A3D62" /></BarChart></ResponsiveContainer></div><p className="text-xs text-text-muted">Top ten diseases in the current view.</p></section>
-          <section className="card p-5" aria-labelledby="province-heading"><ChartHeading id="province-heading" title="Records by province" range={null} chips={filters.province ? [filters.province] : []} onDownload={() => saveChart(provinceRef, 'Records-by-province', 'Records by province', { ...EMPTY_FILTERS, province: filters.province }, provinces.map((row, index) => ({ name: `${row.name} (${row.count.toLocaleString()})`, color: COLORS[index] })))} /><div ref={provinceRef} className="h-64"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie isAnimationActive={false} data={provinces} dataKey="count" nameKey="name" innerRadius={50} outerRadius={90}>{provinces.map((row, index) => <Cell key={row.name} fill={COLORS[index]} />)}</Pie><Tooltip contentStyle={tooltipStyle} /></PieChart></ResponsiveContainer></div><ul className="space-y-1 text-sm">{provinces.map((row, index) => <li key={row.name} className="flex justify-between gap-3"><span><span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: COLORS[index] }} />{row.name}</span><span className="font-mono">{row.count.toLocaleString()}</span></li>)}</ul></section>
+          <section className="card p-5" aria-labelledby="disease-heading"><ChartHeading id="disease-heading" title="Records by disease" range={null} chips={filters.disease} onDownload={() => saveChart(diseaseRef, 'Records-by-disease', 'Records by disease', { ...EMPTY_FILTERS, disease: filters.disease })} /><div
+  ref={diseaseRef}
+  style={{
+    height: Math.max(
+      320,
+      data.byDisease.filter(row => row.name !== '(missing)').length * 36
+    ),
+  }}
+><ResponsiveContainer width="100%" height="100%"><BarChart data={data.byDisease.filter(row => row.name !== '(missing)')} layout="vertical" margin={{ left: 15, right: 20 }}><CartesianGrid strokeDasharray="3 3" /><XAxis type="number" allowDecimals={false} /><YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 10 }} /><Tooltip contentStyle={tooltipStyle} /><Bar isAnimationActive={false} dataKey="count" name="Records" fill="#0A3D62" /></BarChart></ResponsiveContainer></div><p className="text-xs text-text-muted"> All diseases matching the current filters are displayed. </p></section>
+          <section className="card p-5" aria-labelledby="province-heading"><ChartHeading id="province-heading" title="Records by province" range={null} chips={filters.province} onDownload={() => saveChart(provinceRef, 'Records-by-province', 'Records by province', { ...EMPTY_FILTERS, province: filters.province }, provinces.map((row, index) => ({ name: `${row.name} (${row.count.toLocaleString()})`, color: COLORS[index % COLORS.length] })))} /><div ref={provinceRef} className="h-64"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie isAnimationActive={false} data={provinces} dataKey="count" nameKey="name" innerRadius={50} outerRadius={90}>{provinces.map((row, index) => <Cell key={row.name} fill={COLORS[index]} />)}</Pie><Tooltip contentStyle={tooltipStyle} /></PieChart></ResponsiveContainer></div><ul className="space-y-1 text-sm">{provinces.map((row, index) => <li key={row.name} className="flex justify-between gap-3"><span><span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: COLORS[index] }} />{row.name}</span><span className="font-mono">{row.count.toLocaleString()}</span></li>)}</ul></section>
         </div>
         <section className="card p-5"><h2 className="font-semibold text-primary mb-3">Records by assigned unit</h2><ul className="divide-y divide-storm-200">{data.byUnit.map(row => <li key={row.name} className="flex justify-between gap-4 py-2 text-sm"><span>{row.name}</span><span className="font-mono">{row.count.toLocaleString()}</span></li>)}</ul></section>
       </>}

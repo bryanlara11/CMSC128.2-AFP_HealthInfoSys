@@ -1,7 +1,7 @@
 import { requireSupabase, databaseError } from './supabase';
 
-export interface AnalyticsFilters { from: string; to: string; disease: string; province: string; unit: string }
-export const EMPTY_FILTERS: AnalyticsFilters = { from: '', to: '', disease: '', province: '', unit: '' };
+export interface AnalyticsFilters { from: string; to: string; disease: string[]; province: string[]; unit: string;}
+export const EMPTY_FILTERS: AnalyticsFilters = {from: '', to: '', disease: [], province: [], unit: ''};
 export interface CountGroup { name: string; count: number }
 export interface Analytics {
   totalRecords: number; distinctDiseases: number; confirmedCases: number; missingValueRecords: number;
@@ -12,8 +12,17 @@ export interface Analytics {
 }
 
 function argumentsFor(filters: AnalyticsFilters) {
-  if (filters.from && filters.to && filters.from > filters.to) throw new Error('Start date must be on or before end date.');
-  return { p_from: filters.from || null, p_to: filters.to || null, p_disease: filters.disease || null, p_province: filters.province || null, p_unit: filters.unit || null };
+  if (filters.from && filters.to && filters.from > filters.to) {
+    throw new Error('Start date must be on or before end date.');
+  }
+
+  return {
+    p_from: filters.from || null,
+    p_to: filters.to || null,
+    p_disease: filters.disease,
+    p_province: filters.province,
+    p_unit: filters.unit || null
+  };
 }
 
 export async function loadAnalytics(filters: AnalyticsFilters): Promise<Analytics> {
@@ -29,7 +38,7 @@ export async function exportAnalytics(filters: AnalyticsFilters, format: 'csv' |
 }
 
 export function trendSeries(data: Analytics) {
-  const names = data.byDisease.filter(row => row.name !== '(missing)').slice(0, 5).map(row => row.name);
+  const names = data.byDisease.filter(row => row.name !== '(missing)').map(row => row.name);
   const weeks = new Map<string, Record<string, string | number>>();
   for (const row of data.trend) {
     const week = weeks.get(row.week) ?? Object.fromEntries([['week', row.week], ...names.map((_, i) => [`series_${i}`, 0])]);
