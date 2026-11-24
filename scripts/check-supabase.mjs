@@ -22,6 +22,11 @@ await db.exec(migration); // The follow-up migration can be rerun without losing
 const liveMigration = readFileSync(new URL('../supabase/migrations/202610250003_analytics_editing_audit.sql', import.meta.url), 'utf8');
 await db.exec(liveMigration);
 await db.exec(liveMigration);
+// Multi-select analytics, then the quiet-audit/trend-interval follow-up (rerun to prove it is idempotent).
+await db.exec(readFileSync(new URL('../supabase/migrations/202611240001_multi_select_analytics.sql', import.meta.url), 'utf8'));
+const trendMigration = readFileSync(new URL('../supabase/migrations/202611240002_quiet_analytics_audit_and_trend_interval.sql', import.meta.url), 'utf8');
+await db.exec(trendMigration);
+await db.exec(trendMigration);
 after(() => db.close());
 
 const roles = ['admin-clerk', 'medtech', 'radtech', 'physical-therapist', 'nurse', 'medical-officer', 'hseu-analyst', 'it-personnel'];
@@ -154,7 +159,8 @@ const liveUsers = { nurse: uid(20), clerk: uid(21), doctor: uid(22), analyst: ui
 const liveImport = uid(600);
 let liveRecordId;
 const analytics = (id, from=null, to=null, disease=null, province=null, unit=null) => asUser(id, async tx =>
-  (await tx.query('select public.get_surveillance_analytics($1,$2,$3,$4,$5) as data', [from,to,disease,province,unit])).rows[0].data);
+  (await tx.query('select public.get_surveillance_analytics($1,$2,$3::text[],$4::text[],$5) as data',
+    [from,to,disease==null?null:[disease].flat(),province==null?null:[province].flat(),unit])).rows[0].data);
 
 test('analytics uses all scoped records, real report weeks, filters and missing-date counts', async () => {
   for (const [role,id] of Object.entries(liveUsers)) {
@@ -180,6 +186,29 @@ test('analytics uses all scoped records, real report weeks, filters and missing-
   assert.equal((await analytics(liveUsers.analyst,null,null,null,null,'Unit B')).totalRecords,0);
   await assert.rejects(analytics(liveUsers.medtech), /Surveillance viewing permission/);
   await assert.rejects(analytics(liveUsers.nurse,'2026-10-13','2026-10-01'), /Start date/);
+  assert.equal((await analytics(liveUsers.analyst,null,null,['DENGUE','INFLUENZA'])).totalRecords,4);
+});
+
+test('trend is daily for ranges up to 31 days and weekly otherwise; week comparison ignores the date range', async () => {
+  const allTime=await analytics(liveUsers.analyst);
+  assert.equal(allTime.trendInterval,'week');
+  assert.deepEqual(allTime.trend.map(t=>t.period),['2026-10-05','2026-10-12','2026-10-12']);
+  const oneWeek=await analytics(liveUsers.analyst,'2026-10-12','2026-10-18');
+  assert.equal(oneWeek.trendInterval,'day');
+  assert.deepEqual(oneWeek.trend.map(t=>[t.period,t.disease,t.count]),[['2026-10-12','DENGUE',1],['2026-10-13','INFLUENZA',1]]);
+  assert.equal(oneWeek.totalRecords,2);
+  assert.equal(oneWeek.currentWeekCount,2); assert.equal(oneWeek.previousWeekCount,1,'The preceding week is counted even though it is outside the date range');
+  assert.equal((await analytics(liveUsers.analyst,'2026-01-01','2026-12-31')).trendInterval,'week');
+});
+
+test('viewing analytics is not audited; exports still are', async () => {
+  const count=async action=>(await db.query('select count(*)::int n from public.audit_events where action=$1',[action])).rows[0].n;
+  const before=await count('View Analytics');
+  await analytics(liveUsers.analyst); await analytics(liveUsers.doctor,'2026-10-12','2026-10-18');
+  assert.equal(await count('View Analytics'),before);
+  const exportsBefore=await count('Export');
+  await asUser(liveUsers.analyst,tx=>tx.query("select public.export_surveillance_analytics(null,null,null,null,null,'csv')"));
+  assert.equal(await count('Export'),exportsBefore+1);
 });
 
 test('record pagination and search honor field access; analysts cannot fetch patient rows', async () => {

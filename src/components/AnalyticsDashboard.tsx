@@ -1,8 +1,8 @@
-import { useCallback, useMemo, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
 import { Calendar, Download, RefreshCw } from 'lucide-react';
 import { useAuth } from '../data/auth';
-import { EMPTY_FILTERS, loadAnalytics, exportAnalytics, trendSeries, type AnalyticsFilters } from '../data/analytics';
+import { EMPTY_FILTERS, loadAnalytics, exportAnalytics, trendSeries, weekContaining, type AnalyticsFilters, type TrendInterval } from '../data/analytics';
 import { downloadSummary } from '../data/export';
 import { useRemote } from '../data/useRemote';
 
@@ -161,6 +161,8 @@ function dateRangeLabel(f: AnalyticsFilters): string | null {
   if (f.to) return `Up to ${formatDate(f.to)}`;
   return null;
 }
+
+const trendTitle = (interval: TrendInterval) => interval === 'day' ? 'Daily disease trends' : 'Weekly disease trends';
 
 /* ---------- file names that follow the filters ---------- */
 
@@ -502,7 +504,7 @@ async function downloadCombinedCharts(
     const measureCtx = measureCanvas.getContext('2d');
 
     if (!measureCtx || items.length === 0) {
-      return { items: [], rows: [] as { item: { name: string; color: string }; x: number }[], height: 0 };
+      return { items: [], rows: [] as { item: { name: string; color: string }; x: number }[][], height: 0 };
     }
 
     measureCtx.font = legendFont;
@@ -625,9 +627,16 @@ async function downloadCombinedCharts(
   window.setTimeout(() => URL.revokeObjectURL(pngUrl), 1000);
 }
 
-export function AnalyticsDashboard({ allowExport = false }: { allowExport?: boolean }) {
+/**
+ * `requireSelection`: charts stay empty until at least one disease and one province are chosen.
+ * The reporting-date range starts as the latest reporting week; users can widen it with the date inputs.
+ */
+export function AnalyticsDashboard({ allowExport = false, requireSelection = false }: { allowExport?: boolean; requireSelection?: boolean }) {
   const { role, profile, canAdministerSurveillance } = useAuth();
   const [filters, setFilters] = useState<AnalyticsFilters>(EMPTY_FILTERS);
+  // The first response (no date filter) tells us the latest reporting date; the default range is that week.
+  const [defaultRange, setDefaultRange] = useState<{ from: string; to: string } | null>(null);
+  const [rangeReady, setRangeReady] = useState(false);
   const load = useCallback(() => loadAnalytics(filters), [filters]);
   const [downloadingAllCharts, setDownloadingAllCharts] = useState(false);
   const state = useRemote(load);
@@ -635,7 +644,21 @@ export function AnalyticsDashboard({ allowExport = false }: { allowExport?: bool
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const data = state.data;
-  const series = useMemo(() => data ? trendSeries(data) : { names: [], rows: [] }, [data]);
+  useEffect(() => {
+    if (rangeReady || !data) return;
+    const range = data.latestReportDate ? weekContaining(data.latestReportDate) : null;
+    setDefaultRange(range);
+    if (range) setFilters(previous => ({ ...previous, ...range }));
+    setRangeReady(true);
+  }, [data, rangeReady]);
+  const series = useMemo(
+    () => data ? trendSeries(data, { from: filters.from, to: filters.to }) : { names: [], interval: 'week' as TrendInterval, rows: [] },
+    // Fill the range the data was loaded for; the filters change before the next response arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data],
+  );
+  const chartsReady = !requireSelection || (filters.disease.length > 0 && filters.province.length > 0);
+  const trendHeading = trendTitle(series.interval);
   const provinces = useMemo(() => {
     if (!data) return [];
     const top = data.byProvince.slice(0, 6);
@@ -729,7 +752,7 @@ const downloadAllCharts = async () => {
     ...(series.rows.length > 0
       ? [{
           ref: trendRef,
-          title: 'Weekly Disease Trends',
+          title: trendHeading,
           legend: series.names.map((name, index) => ({
             name,
             color: COLORS[index % COLORS.length],
@@ -807,19 +830,19 @@ const change = <K extends keyof AnalyticsFilters>(
         <MultiSelectFilter label="Province" options={data?.options.provinces ?? []} selected={filters.province} onChange={values => change('province', values)} />
         {role.id === 'it-personnel' && <label className="text-sm text-text-secondary">Assigned unit<select aria-label="Assigned unit" className="input-base mt-1" value={filters.unit} onChange={e => change('unit', e.target.value)}><option value="">All units</option>{data?.options.units.map(name => <option key={name}>{name}</option>)}</select></label>}
       </div>
-      <button type="button" className="btn-ghost" onClick={() => setFilters({ ...EMPTY_FILTERS })}>Clear analytics filters</button>
+      <button type="button" className="btn-ghost" onClick={() => setFilters({ ...EMPTY_FILTERS, ...defaultRange })}>Reset analytics filters</button>
     </section>
     {chartError && <p role="alert" className="text-sm text-status-danger">{chartError}</p>}
     {state.loading && <p role="status" className="text-sm text-text-muted">Loading current surveillance data...</p>}
     {state.error && <p role="alert" className="card p-4 text-status-danger">{state.error}</p>}
-    {data && !state.error && <>
+    {data && rangeReady && !state.error && <>
       <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4" aria-label="Surveillance totals" data-tour="kpi-cards">
         {[
           ['Uploaded records', data.totalRecords], ['Diseases reported', data.distinctDiseases],
           ['Confirmed cases', data.confirmedCases], ['Records with missing values', data.missingValueRecords],
         ].map(([label, count]) => <article key={label} className="kpi-card"><p className="kpi-label">{label}</p><p className="kpi-value" data-testid={label === 'Uploaded records' ? 'record-total' : undefined}>{Number(count).toLocaleString()}</p></article>)}
       </section>
-      <div className="flex justify-end">
+      {chartsReady && <div className="flex justify-end">
   <button
     type="button"
     className="btn-primary"
@@ -831,20 +854,25 @@ const change = <K extends keyof AnalyticsFilters>(
       ? 'Downloading charts...'
       : 'Download All Charts (PNG)'}
   </button>
-</div>
+</div>}
       <p className="text-sm text-text-secondary">Latest reporting date: <strong>{data.latestReportDate ?? 'No dated records'}</strong>. Latest reported week: {data.currentWeekCount} records; preceding week: {data.previousWeekCount}. {data.weeklyChange === null ? 'No preceding-week baseline for a percentage change.' : `Change: ${data.weeklyChange > 0 ? '+' : ''}${data.weeklyChange}%.`}</p>
       <p className="text-xs text-text-muted">Counts represent uploaded rows, not deduplicated patients. Week comparisons use the latest reporting date in the filtered data. Missing or invalid RP DATE values are included in all-time totals and excluded from dated charts and date-range filters ({data.undatedRecords} in the current view).</p>
-      {data.totalRecords === 0 ? <section className="card p-8 text-center text-text-secondary">No uploaded records match this view. Upload a standardized workbook or clear the filters.</section> : <>
-        <section className="card p-5" aria-labelledby="trend-heading"><ChartHeading id="trend-heading" title="Weekly disease trends" range={rangeLabel} chips={filterChips} onDownload={series.rows.length ? () => saveChart(trendRef, 'Weekly-disease-trends', 'Weekly disease trends', filters, series.names.map((name, index) => ({ name, color: COLORS[index % COLORS.length] }))) : undefined} />
+      {!chartsReady ? <section className="card p-8 text-center text-text-secondary" aria-live="polite">
+        <p className="font-medium text-primary">Charts are empty until you choose what to show.</p>
+        <p className="text-sm mt-1">Select at least one disease and one province above. Use Select all in each list to include everything.</p>
+      </section> : data.totalRecords === 0 ? <section className="card p-8 text-center text-text-secondary">No uploaded records match this view. Upload a standardized workbook or clear the filters.</section> : <>
+        <section className="card p-5" aria-labelledby="trend-heading"><ChartHeading id="trend-heading" title={trendHeading} range={rangeLabel} chips={filterChips} onDownload={series.rows.length ? () => saveChart(trendRef, trendHeading.replace(/ /g, '-'), trendHeading, filters, series.names.map((name, index) => ({ name, color: COLORS[index % COLORS.length] }))) : undefined} />
           {series.rows.length ? <div
   ref={trendRef}
   style={{ height: Math.max(320, series.names.length * 45) }}
 ><ResponsiveContainer width="100%" height="100%"><LineChart data={series.rows} margin={{ left: 0, right: 20, top: 10, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="week" tick={{ fontSize: 11 }} /><YAxis allowDecimals={false} /><Tooltip contentStyle={tooltipStyle} /><Legend />
+            <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="period" tick={{ fontSize: 11 }} tickFormatter={(value: string) => formatDate(value, series.interval === 'week')} /><Tooltip contentStyle={tooltipStyle} labelFormatter={label => series.interval === 'day' ? formatDate(String(label)) : `Week of ${formatDate(String(label))}`} /><YAxis allowDecimals={false} /><Legend />
             {series.names.map((name, index) => <Line isAnimationActive={false} key={name} type="linear" dataKey={`series_${index}`} name={name} stroke={COLORS[index % COLORS.length]} strokeWidth={2} dot={{ r: 2 }} />)}
           </LineChart></ResponsiveContainer></div> : <p className="text-sm text-text-muted">No valid reporting dates are available for a trend chart.</p>}
           <p className="text-xs text-text-muted mt-2">
-  Weeks start Monday. All diseases matching the current filters are displayed.
+  {series.interval === 'day'
+    ? 'One point per day. Ranges longer than 31 days are shown by week.'
+    : 'One point per week; weeks start Monday. Ranges of 31 days or less are shown by day.'} All diseases matching the current filters are displayed.
 </p>
         </section>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
